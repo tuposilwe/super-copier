@@ -240,13 +240,21 @@ impl DupTab {
                     ));
                     for p in &group.paths {
                         let mut checked = self.selected.contains(p);
-                        if ui.checkbox(&mut checked, p.display().to_string()).changed() {
-                            if checked {
-                                self.selected.insert(p.clone());
-                            } else {
-                                self.selected.remove(p);
+                        ui.horizontal(|ui| {
+                            if ui.checkbox(&mut checked, "").changed() {
+                                if checked {
+                                    self.selected.insert(p.clone());
+                                } else {
+                                    self.selected.remove(p);
+                                }
                             }
-                        }
+                            if ui.small_button("📂").on_hover_text("Show in Finder/Explorer").clicked() {
+                                if let Err(e) = crate::reveal::reveal(p) {
+                                    self.log.push(format!("Couldn't open folder: {e}"));
+                                }
+                            }
+                            ui.label(p.display().to_string());
+                        });
                     }
                 });
             }

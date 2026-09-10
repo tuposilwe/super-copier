@@ -272,6 +272,11 @@ impl LargeFilesTab {
                             self.selected.remove(&entry.path);
                         }
                     }
+                    if ui.small_button("📂").on_hover_text("Show in Finder/Explorer").clicked() {
+                        if let Err(e) = crate::reveal::reveal(&entry.path) {
+                            self.log.push(format!("Couldn't open folder: {e}"));
+                        }
+                    }
                     ui.monospace(human_bytes(entry.size));
                     ui.label(entry.path.display().to_string());
                 });

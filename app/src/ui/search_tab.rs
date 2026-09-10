@@ -224,6 +224,11 @@ impl SearchTab {
                             self.selected.remove(&m.path);
                         }
                     }
+                    if ui.small_button("📂").on_hover_text("Show in Finder/Explorer").clicked() {
+                        if let Err(e) = crate::reveal::reveal(&m.path) {
+                            self.log.push(format!("Couldn't open folder: {e}"));
+                        }
+                    }
                     ui.label(if m.is_dir { "📁" } else { "📄" });
                     if m.is_dir {
                         ui.monospace("—");
