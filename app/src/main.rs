@@ -58,6 +58,7 @@ enum Tab {
 
 struct SuperCopierApp {
     tab: Tab,
+    theme: egui::ThemePreference,
     copy_tab: ui::copy_tab::CopyTab,
     search_tab: ui::search_tab::SearchTab,
     dup_tab: ui::dup_tab::DupTab,
@@ -70,6 +71,7 @@ impl Default for SuperCopierApp {
     fn default() -> Self {
         Self {
             tab: Tab::Copy,
+            theme: egui::ThemePreference::Dark,
             copy_tab: ui::copy_tab::CopyTab::default(),
             search_tab: ui::search_tab::SearchTab::default(),
             dup_tab: ui::dup_tab::DupTab::default(),
@@ -83,6 +85,7 @@ impl Default for SuperCopierApp {
 impl eframe::App for SuperCopierApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        ctx.set_theme(self.theme);
 
         // Keep polling background job channels smoothly while any job runs.
         let any_running = self.copy_tab.is_running()
@@ -109,6 +112,10 @@ impl eframe::App for SuperCopierApp {
                 ui.selectable_value(&mut self.tab, Tab::BigFiles, "🐘 Big Files");
                 ui.selectable_value(&mut self.tab, Tab::Organize, "🗂 Organize");
                 ui.selectable_value(&mut self.tab, Tab::Sync, "🔄 Sync");
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    self.theme.radio_buttons(ui);
+                });
             });
             ui.add_space(4.0);
         });
