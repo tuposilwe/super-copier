@@ -1,11 +1,12 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
+use std::time::Instant;
 
 use eframe::egui;
 use engine::duplicates::{DupEvent, DupOptions, DuplicateGroup};
 use engine::fsops;
 
-use crate::util::{self, human_bytes, Log};
+use crate::util::{self, eta, human_bytes, human_duration, Log};
 use crate::worker::{self, Job};
 
 pub struct DupTab {
@@ -13,6 +14,7 @@ pub struct DupTab {
     min_size_mb: f32,
 
     job: Option<Job<DupEvent>>,
+    started_at: Option<Instant>,
     files_found: usize,
     hashing_done: usize,
     hashing_total: usize,
@@ -28,6 +30,7 @@ impl Default for DupTab {
             roots: Vec::new(),
             min_size_mb: 0.0,
             job: None,
+            started_at: None,
             files_found: 0,
             hashing_done: 0,
             hashing_total: 0,
@@ -70,9 +73,11 @@ impl DupTab {
                 }
                 DupEvent::Finished { groups, wasted_bytes } => {
                     self.wasted_bytes = wasted_bytes;
+                    let elapsed = self.started_at.map(|t| t.elapsed().as_secs_f64()).unwrap_or(0.0);
                     self.log.push(format!(
-                        "Found {groups} duplicate group(s), wasting {}",
-                        human_bytes(wasted_bytes)
+                        "Found {groups} duplicate group(s), wasting {} — {}",
+                        human_bytes(wasted_bytes),
+                        human_duration(elapsed)
                     ));
                     crate::notify::notify(
                         "Duplicate scan finished",
@@ -105,6 +110,7 @@ impl DupTab {
         self.files_found = 0;
         self.hashing_done = 0;
         self.hashing_total = 0;
+        self.started_at = Some(Instant::now());
         self.log.clear();
         self.job = Some(worker::spawn_duplicates(self.roots.clone(), options));
     }
@@ -218,9 +224,17 @@ impl DupTab {
         });
 
         if self.is_running() {
-            ui.label(format!("Scanning… {} files found", self.files_found));
+            let elapsed = self.started_at.map(|t| t.elapsed().as_secs_f64()).unwrap_or(0.0);
+            ui.label(format!(
+                "Scanning… {} files found — {} elapsed",
+                self.files_found,
+                human_duration(elapsed)
+            ));
             if self.hashing_total > 0 {
                 ui.add(egui::ProgressBar::new(self.hashing_done as f32 / self.hashing_total as f32).show_percentage());
+                if let Some(eta) = eta(elapsed, self.hashing_done as u64, self.hashing_total as u64) {
+                    ui.weak(format!("~{eta} remaining"));
+                }
             }
         }
 

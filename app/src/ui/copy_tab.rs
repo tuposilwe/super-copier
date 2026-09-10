@@ -7,7 +7,7 @@ use engine::copy::{CopyEvent, CopyOptions, CopySummary, OverwritePolicy};
 use engine::fsops;
 
 use crate::dnd;
-use crate::util::{human_bytes, human_rate, Log};
+use crate::util::{eta, human_bytes, human_duration, human_rate, Log};
 use crate::worker::{self, Job};
 
 #[derive(PartialEq, Eq, Clone, Copy)]
@@ -423,7 +423,15 @@ impl CopyTab {
             if let Some(started) = self.started_at {
                 let secs = started.elapsed().as_secs_f64().max(0.001);
                 let rate = bytes_done as f64 / secs;
-                ui.weak(human_rate(rate));
+                ui.horizontal(|ui| {
+                    ui.weak(format!("{} elapsed", human_duration(secs)));
+                    ui.weak("·");
+                    ui.weak(human_rate(rate));
+                    if let Some(eta) = eta(secs, bytes_done, self.total_bytes) {
+                        ui.weak("·");
+                        ui.weak(format!("~{eta} remaining"));
+                    }
+                });
             }
         }
 
@@ -431,12 +439,12 @@ impl CopyTab {
             ui.colored_label(
                 egui::Color32::from_rgb(90, 200, 120),
                 format!(
-                    "✓ Done: {} transferred, {} skipped, {} failed — {} in {:.1}s",
+                    "✓ Done: {} transferred, {} skipped, {} failed — {} in {}",
                     summary.files_copied,
                     summary.files_skipped,
                     summary.files_failed,
                     human_bytes(summary.bytes_copied),
-                    summary.elapsed_secs
+                    human_duration(summary.elapsed_secs)
                 ),
             );
         }

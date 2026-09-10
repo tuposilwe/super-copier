@@ -1,12 +1,13 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
+use std::time::Instant;
 
 use eframe::egui;
 use engine::fsops;
 use engine::search::{SearchEvent, SearchMatch, SearchOptions};
 
 use crate::dnd;
-use crate::util::{self, human_bytes, Log};
+use crate::util::{self, human_bytes, human_duration, Log};
 use crate::worker::{self, Job};
 
 #[derive(Default)]
@@ -17,6 +18,7 @@ pub struct SearchTab {
     include_dirs: bool,
 
     job: Option<Job<SearchEvent>>,
+    started_at: Option<Instant>,
     files_scanned: usize,
     results: Vec<SearchMatch>,
     selected: HashSet<PathBuf>,
@@ -47,7 +49,8 @@ impl SearchTab {
                 SearchEvent::Scanning { files_scanned } => self.files_scanned = files_scanned,
                 SearchEvent::Found(m) => self.results.push(m),
                 SearchEvent::Finished { count } => {
-                    self.log.push(format!("Found {count} match(es)."));
+                    let elapsed = self.started_at.map(|t| t.elapsed().as_secs_f64()).unwrap_or(0.0);
+                    self.log.push(format!("Found {count} match(es) in {}.", human_duration(elapsed)));
                     crate::notify::notify("Search finished", &format!("{count} match(es) for \"{}\"", self.query));
                     finished = true;
                 }
@@ -77,6 +80,7 @@ impl SearchTab {
         self.results.clear();
         self.selected.clear();
         self.files_scanned = 0;
+        self.started_at = Some(Instant::now());
         self.log.clear();
         self.log.push(if whole_disk {
             "Searching the entire disk…".to_string()
@@ -187,10 +191,12 @@ impl SearchTab {
 
         if running {
             ui.separator();
+            let elapsed = self.started_at.map(|t| t.elapsed().as_secs_f64()).unwrap_or(0.0);
             ui.label(format!(
-                "Scanning… {} checked, {} match so far",
+                "Scanning… {} checked, {} match so far — {} elapsed",
                 self.files_scanned,
-                self.results.len()
+                self.results.len(),
+                human_duration(elapsed)
             ));
         }
 

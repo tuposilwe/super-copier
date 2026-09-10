@@ -1,10 +1,11 @@
 use std::path::PathBuf;
+use std::time::Instant;
 
 use eframe::egui;
 use engine::sync::{SyncEvent, SyncOptions, SyncSummary};
 
 use crate::dnd;
-use crate::util::Log;
+use crate::util::{human_duration, Log};
 use crate::worker::{self, Job};
 
 #[derive(Default)]
@@ -15,6 +16,7 @@ pub struct SyncTab {
     verify: bool,
 
     job: Option<Job<SyncEvent>>,
+    started_at: Option<Instant>,
     planned: Option<(usize, usize, usize)>,
     summary: Option<SyncSummary>,
     log: Log,
@@ -48,9 +50,11 @@ impl SyncTab {
                     self.log.push(format!("✗ {} — {message}", path.display()))
                 }
                 SyncEvent::Finished(summary) => {
+                    let elapsed = self.started_at.map(|t| t.elapsed().as_secs_f64()).unwrap_or(0.0);
                     self.log.push(format!(
-                        "Done: {} copied, {} updated, {} deleted, {} failed",
-                        summary.copied, summary.updated, summary.deleted, summary.failed
+                        "Done: {} copied, {} updated, {} deleted, {} failed — {}",
+                        summary.copied, summary.updated, summary.deleted, summary.failed,
+                        human_duration(elapsed)
                     ));
                     crate::notify::notify(
                         "Sync finished",
@@ -84,6 +88,7 @@ impl SyncTab {
         };
         self.planned = None;
         self.summary = None;
+        self.started_at = Some(Instant::now());
         self.log.clear();
         self.job = Some(worker::spawn_sync(src, dst, options));
     }
@@ -144,6 +149,11 @@ impl SyncTab {
             ui.label(format!(
                 "Plan: {to_copy} to copy, {to_update} to update, {to_delete} to delete"
             ));
+        }
+
+        if self.is_running() {
+            let elapsed = self.started_at.map(|t| t.elapsed().as_secs_f64()).unwrap_or(0.0);
+            ui.weak(format!("{} elapsed", human_duration(elapsed)));
         }
 
         if let Some(summary) = &self.summary {

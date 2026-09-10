@@ -1,12 +1,13 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
+use std::time::Instant;
 
 use eframe::egui;
 use engine::fsops;
 use engine::large_files::{FileEntry, LargeFileEvent, LargeFilesOptions};
 
 use crate::dnd;
-use crate::util::{self, human_bytes, Log};
+use crate::util::{self, human_bytes, human_duration, Log};
 use crate::worker::{self, Job};
 
 #[derive(PartialEq, Clone, Copy)]
@@ -22,6 +23,7 @@ pub struct LargeFilesTab {
     sort_by: SortBy,
 
     job: Option<Job<LargeFileEvent>>,
+    started_at: Option<Instant>,
     files_scanned: usize,
     results: Vec<FileEntry>,
     selected: HashSet<PathBuf>,
@@ -37,6 +39,7 @@ impl Default for LargeFilesTab {
             search: String::new(),
             sort_by: SortBy::SizeDesc,
             job: None,
+            started_at: None,
             files_scanned: 0,
             results: Vec::new(),
             selected: HashSet::new(),
@@ -73,7 +76,12 @@ impl LargeFilesTab {
                 }
                 LargeFileEvent::Finished { count, total_bytes } => {
                     self.total_bytes = total_bytes;
-                    self.log.push(format!("Found {count} file(s) over the threshold, {}", human_bytes(total_bytes)));
+                    let elapsed = self.started_at.map(|t| t.elapsed().as_secs_f64()).unwrap_or(0.0);
+                    self.log.push(format!(
+                        "Found {count} file(s) over the threshold, {} — {}",
+                        human_bytes(total_bytes),
+                        human_duration(elapsed)
+                    ));
                     crate::notify::notify(
                         "Big Files scan finished",
                         &format!("{count} file(s) found, {}", human_bytes(total_bytes)),
@@ -103,6 +111,7 @@ impl LargeFilesTab {
         self.selected.clear();
         self.total_bytes = 0;
         self.files_scanned = 0;
+        self.started_at = Some(Instant::now());
         self.log.clear();
         self.job = Some(worker::spawn_large_files(self.roots.clone(), options));
     }
@@ -212,10 +221,12 @@ impl LargeFilesTab {
         });
 
         if self.is_running() {
+            let elapsed = self.started_at.map(|t| t.elapsed().as_secs_f64()).unwrap_or(0.0);
             ui.label(format!(
-                "Scanning… {} files checked, {} match so far",
+                "Scanning… {} files checked, {} match so far — {} elapsed",
                 self.files_scanned,
-                self.results.len()
+                self.results.len(),
+                human_duration(elapsed)
             ));
         }
 

@@ -1,15 +1,17 @@
 use std::path::PathBuf;
+use std::time::Instant;
 
 use eframe::egui;
 use engine::fsops::{OrganizeEvent, OrganizeStrategy};
 
-use crate::util::Log;
+use crate::util::{human_duration, Log};
 use crate::worker::{self, Job};
 
 pub struct OrganizeTab {
     dir: Option<PathBuf>,
     strategy: OrganizeStrategy,
     job: Option<Job<OrganizeEvent>>,
+    started_at: Option<Instant>,
     moved: usize,
     log: Log,
 }
@@ -20,6 +22,7 @@ impl Default for OrganizeTab {
             dir: None,
             strategy: OrganizeStrategy::ByExtension,
             job: None,
+            started_at: None,
             moved: 0,
             log: Log::default(),
         }
@@ -50,7 +53,8 @@ impl OrganizeTab {
                     self.log.push(format!("✗ {} — {message}", path.display()));
                 }
                 OrganizeEvent::Finished { moved } => {
-                    self.log.push(format!("Done: moved {moved} file(s)."));
+                    let elapsed = self.started_at.map(|t| t.elapsed().as_secs_f64()).unwrap_or(0.0);
+                    self.log.push(format!("Done: moved {moved} file(s) in {}.", human_duration(elapsed)));
                     crate::notify::notify("Organize finished", &format!("{moved} file(s) moved"));
                     finished = true;
                 }
@@ -67,6 +71,7 @@ impl OrganizeTab {
             return;
         };
         self.moved = 0;
+        self.started_at = Some(Instant::now());
         self.log.clear();
         self.job = Some(worker::spawn_organize(dir, self.strategy));
     }
@@ -125,7 +130,12 @@ impl OrganizeTab {
             }
         });
 
-        ui.label(format!("Moved: {}", self.moved));
+        if self.is_running() {
+            let elapsed = self.started_at.map(|t| t.elapsed().as_secs_f64()).unwrap_or(0.0);
+            ui.label(format!("Moved: {} — {} elapsed", self.moved, human_duration(elapsed)));
+        } else {
+            ui.label(format!("Moved: {}", self.moved));
+        }
 
         ui.separator();
         ui.label("Log:");
