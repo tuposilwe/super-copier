@@ -16,3 +16,6 @@ egui = "0.36.2"
 engine = { version = "0.1.0", path = "../engine" }
 notify-rust = "4.18.0"
 rfd = "0.17.2"
+
+[build-dependencies]
+embed-resource = "3.0.11"

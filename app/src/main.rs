@@ -9,11 +9,24 @@ mod worker;
 
 use eframe::egui;
 
+/// 256x256 RGBA8 pixels, pre-rendered from `assets/icon-1024.png` (see
+/// `assets/` for the source and the regeneration steps in the README).
+const ICON_RGBA: &[u8] = include_bytes!("../assets/icon_256.rgba");
+
+fn app_icon() -> egui::IconData {
+    egui::IconData {
+        rgba: ICON_RGBA.to_vec(),
+        width: 256,
+        height: 256,
+    }
+}
+
 fn main() -> eframe::Result {
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([980.0, 680.0])
-            .with_min_inner_size([680.0, 480.0]),
+            .with_min_inner_size([680.0, 480.0])
+            .with_icon(app_icon()),
         ..Default::default()
     };
 

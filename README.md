@@ -101,12 +101,53 @@ turn off "Use OS fast-copy" in the Copy tab (or set
 `CopyOptions::use_fast_path = false`), which uses the portable chunked
 copy on every platform.
 
+## Icon
+
+`app/assets/icon-1024.png` is the master icon (1024x1024, generated once
+with Pillow — see the git history of that file for the script). Every
+other icon asset is derived from it and already checked in, so you don't
+need to regenerate them unless you change the artwork:
+
+- `icon_256.rgba` — raw 256x256 RGBA8 pixels, `include_bytes!`'d into
+  `main.rs` and set via `ViewportBuilder::with_icon` for the *running*
+  window/Dock/taskbar icon (both platforms).
+- `icon.icns` — macOS bundle icon (see below).
+- `icon.ico` + `icon.rc` — compiled into the `.exe` itself as its file
+  icon via `build.rs` (using the [`embed-resource`] crate, which no-ops
+  on non-Windows targets).
+
+If you change `icon-1024.png`, regenerate the rest:
+
+```sh
+cd app/assets
+python3 - <<'EOF'
+from PIL import Image
+img = Image.open("icon-1024.png").convert("RGBA")
+img.save("icon.ico", sizes=[(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)])
+img.resize((256, 256), Image.LANCZOS).tobytes()
+with open("icon_256.rgba", "wb") as f:
+    f.write(img.resize((256, 256), Image.LANCZOS).tobytes())
+EOF
+
+mkdir -p AppIcon.iconset
+for size in 16 32 128 256 512; do
+  sips -z $size $size icon-1024.png --out "AppIcon.iconset/icon_${size}x${size}.png"
+  sips -z $((size*2)) $((size*2)) icon-1024.png --out "AppIcon.iconset/icon_${size}x${size}@2x.png"
+done
+sips -z 1024 1024 icon-1024.png --out AppIcon.iconset/icon_512x512@2x.png
+iconutil -c icns AppIcon.iconset -o icon.icns
+rm -rf AppIcon.iconset
+```
+
+[`embed-resource`]: https://crates.io/crates/embed-resource
+
 ## Packaging
 
-`cargo build --release` alone gives you a bare executable — it runs, but
+`cargo build --release` alone gives you a bare executable — it runs
+(with the right icon in its own window/Dock/taskbar, per above), but
 it's not something Finder/Explorer treats as an installable app (no
-icon, no Dock entry, and on macOS it's just a Unix binary rather than a
-`.app`).
+Finder icon, no proper Dock entry, and on macOS it's just a Unix binary
+rather than a `.app`).
 
 ### macOS: build a `.app` bundle
 
@@ -116,6 +157,7 @@ cargo build --release -p super-copier
 APP="target/release/Super Copier.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp target/release/super-copier "$APP/Contents/MacOS/super-copier"
+cp app/assets/icon.icns "$APP/Contents/Resources/AppIcon.icns"
 
 cat > "$APP/Contents/Info.plist" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -134,6 +176,8 @@ cat > "$APP/Contents/Info.plist" <<'EOF'
 	<string>0.1.0</string>
 	<key>CFBundleExecutable</key>
 	<string>super-copier</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleSignature</key>
@@ -152,7 +196,9 @@ codesign --force --deep -s - "$APP"
 ```
 
 Then drag `target/release/Super Copier.app` into `/Applications` (or
-just double-click it in place — it runs fine either way).
+just double-click it in place — it runs fine either way). If the Finder
+icon looks stale after rebuilding, that's the icon cache, not the app —
+`touch` the `.app` and/or relaunch Finder.
 
 This ad-hoc signature is only good for **this Mac**. If you copy the
 `.app` to another machine or hand it to someone else, Gatekeeper will
@@ -164,9 +210,10 @@ scope here.
 ### Windows
 
 The `.exe` from `cargo build --release` (see above) is already a normal
-double-clickable Windows application — no bundling step needed. For an
-installer (Setup.exe / MSI), a tool like [Inno Setup] or [WiX] would
-wrap the `.exe` plus any assets, but that isn't set up in this repo.
+double-clickable Windows application, icon included — no bundling step
+needed. For an installer (Setup.exe / MSI), a tool like [Inno Setup] or
+[WiX] would wrap the `.exe` plus any assets, but that isn't set up in
+this repo.
 
 [Inno Setup]: https://jrsoftware.org/isinfo.php
 [WiX]: https://wixtoolset.org/
