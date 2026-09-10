@@ -293,6 +293,34 @@ opening a second window.
 
 [NSIS]: https://nsis.sourceforge.io/
 
+### Windows: `SuperCopier.msi` (alternative to the NSIS installer)
+
+`packaging/windows-msi/installer.wxs` is a [WiX v5] MSI installer —
+useful if you specifically need an `.msi` (e.g. for Group Policy/SCCM/
+Intune deployment) rather than the NSIS `.exe` above. It installs to
+Program Files, adds Start Menu and Desktop shortcuts, handles upgrades
+via a fixed `UpgradeCode`, and registers the same Explorer context menu
+entries as the NSIS installer.
+
+**This must be built on Windows** — WiX Toolset's own tooling states it
+only supports Windows, and that turned out to be true in practice, not
+just a caveat: attempting it on macOS hit a bug in WiX's own path
+validation, and separately, a missing native library needed for the
+final bind step. Neither is fixable from this repo. The file's syntax
+was still thoroughly verified in isolation on macOS (every element
+compiles cleanly up to that Windows-only step) — see the comment at the
+top of `installer.wxs` for exactly what was and wasn't confirmed.
+
+```sh
+# On Windows:
+cargo build --release
+dotnet tool install --global wix --version 5.0.2   # v5, not v7 — v7 needs a paid EULA
+cd packaging\windows-msi
+wix build installer.wxs -arch x64 -d Version=0.1.0 -d ExePath=..\..\target\release\super-copier.exe -d IconPath=..\..\app\assets\icon.ico -o SuperCopier.msi
+```
+
+[WiX v5]: https://wixtoolset.org/
+
 ## Notes on the fast-copy design
 
 - On **macOS/APFS**, `clonefile(2)` makes same-volume copies effectively

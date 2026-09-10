@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Super Copier MSI installer (WiX v5). Build on Windows:
+
+    dotnet tool install --global wix --version 5.0.2
+    wix build installer.wxs -arch x64 -d Version=0.1.0 -d ExePath=..\..\target\release\super-copier.exe -d IconPath=..\..\app\assets\icon.ico -o SuperCopier.msi
+
+  (Use v5, not v7 — v7 requires accepting a paid "Open Source
+  Maintenance Fee" EULA; v5 is plain MIT-licensed.)
+
+  UpgradeCode is fixed and must never change across versions — it's what
+  lets Windows Installer recognize a new .msi as an upgrade of this app
+  rather than a separate, conflicting install.
+
+  This file's syntax is verified, but the .msi has never actually been
+  bound: WiX Toolset only runs on Windows (its own tooling says so), and
+  this was authored on macOS. Two platform-specific failures were hit
+  and diagnosed there, neither of which is an authoring problem:
+    1. `wix build` mis-validates any `Directory/@Name` value on macOS as
+       "not a relative path" (reproduces even for a plain name with no
+       spaces) — a bug in WiX's own path handling, not this file.
+    2. Past that, the final bind step needs a native `msi.dll`/`libmsi`
+       to read the compiled exe's version info, which isn't available
+       outside Windows.
+  Every other construct here (Package attributes, SummaryInformation,
+  MajorUpgrade, MediaTemplate, Icon/Property, Component/File, the
+  RegistryKey/RegistryValue shell entries, Shortcut) was confirmed to
+  compile cleanly in isolation on macOS, reaching that same final
+  Windows-only failure — so what's untested is specifically "does the
+  real .msi come out the other end," not "is this XML well-formed."
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+    Name="Super Copier"
+    Manufacturer="Super Copier"
+    Version="$(var.Version)"
+    UpgradeCode="98EDEFF1-BDFE-458A-9BBE-A2AA99D26BCD"
+    Language="1033"
+    Compressed="yes"
+    Scope="perUserOrMachine">
+
+    <SummaryInformation Description="Super Copier installer" Manufacturer="Super Copier" />
+
+    <MajorUpgrade
+      DowngradeErrorMessage="A newer version of Super Copier is already installed." />
+
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="AppIcon.ico" SourceFile="$(var.IconPath)" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon.ico" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Super Copier">
+        <Component Id="MainExecutable" Guid="6E6EF8D0-6E2A-4B2C-8F26-6B6E9F9A7E11">
+          <File Id="SuperCopierExe" Source="$(var.ExePath)" KeyPath="yes" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ApplicationProgramsFolder" Name="Super Copier">
+        <Component Id="ApplicationShortcut" Guid="C1C5D9B4-6D0E-4E3E-9A6B-6A7E6EBD9A0D">
+          <Shortcut
+            Id="ApplicationStartMenuShortcut"
+            Name="Super Copier"
+            Target="[INSTALLFOLDER]super-copier.exe"
+            WorkingDirectory="INSTALLFOLDER"
+            Icon="AppIcon.ico" />
+          <RemoveFolder Id="CleanUpShortcut" Directory="ApplicationProgramsFolder" On="uninstall" />
+          <RegistryValue Root="HKCU" Key="Software\SuperCopier" Name="installed" Type="integer" Value="1" KeyPath="yes" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="DesktopFolder">
+      <Component Id="DesktopShortcut" Guid="6A9B8E6E-6F2C-4B1F-9A1E-6B2C3E4D5F6A">
+        <Shortcut
+          Id="ApplicationDesktopShortcut"
+          Name="Super Copier"
+          Target="[INSTALLFOLDER]super-copier.exe"
+          WorkingDirectory="INSTALLFOLDER"
+          Icon="AppIcon.ico" />
+        <RegistryValue Root="HKCU" Key="Software\SuperCopier" Name="desktop_shortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <!-- Explorer context menu: "Copy with Super Copier" / "Move with Super
+         Copier" on files and folders. See app/src/ipc.rs for why multiple
+         selected items still land in one running window. -->
+    <Component Id="ShellCopyFile" Directory="INSTALLFOLDER" Guid="1B2C3D4E-5F60-4718-8293-A4B5C6D7E8F9">
+      <RegistryKey Root="HKCU" Key="Software\Classes\*\shell\SuperCopierCopy">
+        <RegistryValue Type="string" Value="Copy with Super Copier" />
+        <RegistryValue Type="string" Name="Icon" Value="[INSTALLFOLDER]super-copier.exe" />
+      </RegistryKey>
+      <RegistryValue Root="HKCU" Key="Software\Classes\*\shell\SuperCopierCopy\command" Type="string" Value='&quot;[INSTALLFOLDER]super-copier.exe&quot; &quot;%1&quot;' />
+    </Component>
+
+    <Component Id="ShellMoveFile" Directory="INSTALLFOLDER" Guid="2C3D4E5F-6071-4829-9384-B5C6D7E8F9A0">
+      <RegistryKey Root="HKCU" Key="Software\Classes\*\shell\SuperCopierMove">
+        <RegistryValue Type="string" Value="Move with Super Copier" />
+        <RegistryValue Type="string" Name="Icon" Value="[INSTALLFOLDER]super-copier.exe" />
+      </RegistryKey>
+      <RegistryValue Root="HKCU" Key="Software\Classes\*\shell\SuperCopierMove\command" Type="string" Value='&quot;[INSTALLFOLDER]super-copier.exe&quot; --move &quot;%1&quot;' />
+    </Component>
+
+    <Component Id="ShellCopyDir" Directory="INSTALLFOLDER" Guid="3D4E5F60-7182-4930-A495-C6D7E8F9A0B1">
+      <RegistryKey Root="HKCU" Key="Software\Classes\Directory\shell\SuperCopierCopy">
+        <RegistryValue Type="string" Value="Copy with Super Copier" />
+        <RegistryValue Type="string" Name="Icon" Value="[INSTALLFOLDER]super-copier.exe" />
+      </RegistryKey>
+      <RegistryValue Root="HKCU" Key="Software\Classes\Directory\shell\SuperCopierCopy\command" Type="string" Value='&quot;[INSTALLFOLDER]super-copier.exe&quot; &quot;%1&quot;' />
+    </Component>
+
+    <Component Id="ShellMoveDir" Directory="INSTALLFOLDER" Guid="4E5F6071-8293-4A41-B5A6-D7E8F9A0B1C2">
+      <RegistryKey Root="HKCU" Key="Software\Classes\Directory\shell\SuperCopierMove">
+        <RegistryValue Type="string" Value="Move with Super Copier" />
+        <RegistryValue Type="string" Name="Icon" Value="[INSTALLFOLDER]super-copier.exe" />
+      </RegistryKey>
+      <RegistryValue Root="HKCU" Key="Software\Classes\Directory\shell\SuperCopierMove\command" Type="string" Value='&quot;[INSTALLFOLDER]super-copier.exe&quot; --move &quot;%1&quot;' />
+    </Component>
+
+    <Feature Id="MainFeature" Title="Super Copier" Level="1">
+      <ComponentRef Id="MainExecutable" />
+      <ComponentRef Id="ApplicationShortcut" />
+      <ComponentRef Id="DesktopShortcut" />
+      <ComponentRef Id="ShellCopyFile" />
+      <ComponentRef Id="ShellMoveFile" />
+      <ComponentRef Id="ShellCopyDir" />
+      <ComponentRef Id="ShellMoveDir" />
+    </Feature>
+  </Package>
+</Wix>

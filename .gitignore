@@ -2,3 +2,5 @@
 .DS_Store
 packaging/macos/*.dmg
 packaging/windows/*.exe
+packaging/windows-msi/*.msi
+packaging/windows-msi/*.wixpdb
