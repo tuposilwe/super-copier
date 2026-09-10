@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use eframe::egui;
-use engine::fsops;
 use engine::large_files::{FileEntry, LargeFileEvent, LargeFilesOptions};
 
 use crate::dnd;
@@ -28,6 +27,10 @@ pub struct LargeFilesTab {
     results: Vec<FileEntry>,
     selected: HashSet<PathBuf>,
     total_bytes: u64,
+    /// Paths currently being sent to the trash on a background thread (see
+    /// `worker::spawn_delete_to_trash`), with the channel reporting back
+    /// whether it worked.
+    deleting: Option<worker::DeleteJob>,
     log: Log,
 }
 
@@ -44,6 +47,7 @@ impl Default for LargeFilesTab {
             results: Vec::new(),
             selected: HashSet::new(),
             total_bytes: 0,
+            deleting: None,
             log: Log::default(),
         }
     }
@@ -65,6 +69,21 @@ impl LargeFilesTab {
     }
 
     fn poll(&mut self) {
+        if let Some((paths, rx)) = &self.deleting {
+            if let Ok(result) = rx.try_recv() {
+                match result {
+                    Ok(count) => {
+                        self.log.push(format!("Moved {count} file(s) to trash."));
+                        let deleted: HashSet<PathBuf> = paths.iter().cloned().collect();
+                        self.results.retain(|f| !deleted.contains(&f.path));
+                        self.selected.retain(|p| !deleted.contains(p));
+                    }
+                    Err(e) => self.log.push(format!("Delete failed: {e}")),
+                }
+                self.deleting = None;
+            }
+        }
+
         let Some(job) = &self.job else { return };
         let mut finished = false;
         for event in job.rx.try_iter() {
@@ -139,22 +158,19 @@ impl LargeFilesTab {
     }
 
     fn delete_selected(&mut self) {
-        if self.selected.is_empty() {
+        if self.selected.is_empty() || self.deleting.is_some() {
             return;
         }
         let paths: Vec<PathBuf> = self.selected.iter().cloned().collect();
-        match fsops::delete_to_trash(&paths) {
-            Ok(()) => {
-                self.log.push(format!("Moved {} file(s) to trash.", paths.len()));
-                self.results.retain(|f| !self.selected.contains(&f.path));
-                self.selected.clear();
-            }
-            Err(e) => self.log.push(format!("Delete failed: {e}")),
-        }
+        let rx = worker::spawn_delete_to_trash(paths.clone());
+        self.deleting = Some((paths, rx));
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         self.poll();
+        if self.deleting.is_some() {
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
+        }
 
         ui.heading("Big Files");
         ui.label("Scans folders for files above a size threshold, then search and sort the results.");
@@ -269,10 +285,16 @@ impl LargeFilesTab {
                 self.selected.clear();
             }
             if ui
-                .add_enabled(!self.selected.is_empty(), egui::Button::new("🗑 Delete selected (to Trash)"))
+                .add_enabled(
+                    !self.selected.is_empty() && self.deleting.is_none(),
+                    egui::Button::new("🗑 Delete selected (to Trash)"),
+                )
                 .clicked()
             {
                 self.delete_selected();
+            }
+            if self.deleting.is_some() {
+                ui.weak("Deleting…");
             }
         });
 

@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use eframe::egui;
-use engine::fsops;
 use engine::search::{SearchEvent, SearchMatch, SearchOptions};
 
 use crate::dnd;
@@ -22,6 +21,10 @@ pub struct SearchTab {
     files_scanned: usize,
     results: Vec<SearchMatch>,
     selected: HashSet<PathBuf>,
+    /// Paths currently being sent to the trash on a background thread (see
+    /// `worker::spawn_delete_to_trash`), with the channel reporting back
+    /// whether it worked.
+    deleting: Option<worker::DeleteJob>,
     log: Log,
 }
 
@@ -42,6 +45,21 @@ impl SearchTab {
     }
 
     fn poll(&mut self) {
+        if let Some((paths, rx)) = &self.deleting {
+            if let Ok(result) = rx.try_recv() {
+                match result {
+                    Ok(count) => {
+                        self.log.push(format!("Moved {count} item(s) to trash."));
+                        let deleted: HashSet<PathBuf> = paths.iter().cloned().collect();
+                        self.results.retain(|m| !deleted.contains(&m.path));
+                        self.selected.retain(|p| !deleted.contains(p));
+                    }
+                    Err(e) => self.log.push(format!("Delete failed: {e}")),
+                }
+                self.deleting = None;
+            }
+        }
+
         let Some(job) = &self.job else { return };
         let mut finished = false;
         for event in job.rx.try_iter() {
@@ -96,22 +114,19 @@ impl SearchTab {
     }
 
     fn delete_selected(&mut self) {
-        if self.selected.is_empty() {
+        if self.selected.is_empty() || self.deleting.is_some() {
             return;
         }
         let paths: Vec<PathBuf> = self.selected.iter().cloned().collect();
-        match fsops::delete_to_trash(&paths) {
-            Ok(()) => {
-                self.log.push(format!("Moved {} item(s) to trash.", paths.len()));
-                self.results.retain(|m| !self.selected.contains(&m.path));
-                self.selected.clear();
-            }
-            Err(e) => self.log.push(format!("Delete failed: {e}")),
-        }
+        let rx = worker::spawn_delete_to_trash(paths.clone());
+        self.deleting = Some((paths, rx));
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         self.poll();
+        if self.deleting.is_some() {
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
+        }
         let running = self.is_running();
 
         ui.heading("Search");
@@ -213,10 +228,16 @@ impl SearchTab {
                 self.selected.clear();
             }
             if ui
-                .add_enabled(!self.selected.is_empty(), egui::Button::new("🗑 Delete selected (to Trash)"))
+                .add_enabled(
+                    !self.selected.is_empty() && self.deleting.is_none(),
+                    egui::Button::new("🗑 Delete selected (to Trash)"),
+                )
                 .clicked()
             {
                 self.delete_selected();
+            }
+            if self.deleting.is_some() {
+                ui.weak("Deleting…");
             }
         });
 

@@ -4,7 +4,6 @@ use std::time::Instant;
 
 use eframe::egui;
 use engine::duplicates::{DupEvent, DupOptions, DuplicateGroup};
-use engine::fsops;
 
 use crate::util::{self, eta, human_bytes, human_duration, Log};
 use crate::worker::{self, Job};
@@ -21,6 +20,10 @@ pub struct DupTab {
     groups: Vec<DuplicateGroup>,
     wasted_bytes: u64,
     selected: HashSet<PathBuf>,
+    /// Paths currently being sent to the trash on a background thread (see
+    /// `worker::spawn_delete_to_trash` for why it isn't done inline), along
+    /// with the channel that reports back whether it worked.
+    deleting: Option<worker::DeleteJob>,
     log: Log,
 }
 
@@ -37,6 +40,7 @@ impl Default for DupTab {
             groups: Vec::new(),
             wasted_bytes: 0,
             selected: HashSet::new(),
+            deleting: None,
             log: Log::default(),
         }
     }
@@ -58,6 +62,24 @@ impl DupTab {
     }
 
     fn poll(&mut self) {
+        if let Some((paths, rx)) = &self.deleting {
+            if let Ok(result) = rx.try_recv() {
+                match result {
+                    Ok(count) => {
+                        self.log.push(format!("Moved {count} file(s) to trash."));
+                        let deleted: HashSet<PathBuf> = paths.iter().cloned().collect();
+                        for g in &mut self.groups {
+                            g.paths.retain(|p| !deleted.contains(p));
+                        }
+                        self.groups.retain(|g| g.paths.len() > 1);
+                        self.selected.retain(|p| !deleted.contains(p));
+                    }
+                    Err(e) => self.log.push(format!("Delete failed: {e}")),
+                }
+                self.deleting = None;
+            }
+        }
+
         let Some(job) = &self.job else { return };
         let mut finished = false;
         for event in job.rx.try_iter() {
@@ -130,25 +152,19 @@ impl DupTab {
     }
 
     fn delete_selected(&mut self) {
-        if self.selected.is_empty() {
+        if self.selected.is_empty() || self.deleting.is_some() {
             return;
         }
         let paths: Vec<PathBuf> = self.selected.iter().cloned().collect();
-        match fsops::delete_to_trash(&paths) {
-            Ok(()) => {
-                self.log.push(format!("Moved {} file(s) to trash.", paths.len()));
-                for g in &mut self.groups {
-                    g.paths.retain(|p| !self.selected.contains(p));
-                }
-                self.groups.retain(|g| g.paths.len() > 1);
-                self.selected.clear();
-            }
-            Err(e) => self.log.push(format!("Delete failed: {e}")),
-        }
+        let rx = worker::spawn_delete_to_trash(paths.clone());
+        self.deleting = Some((paths, rx));
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         self.poll();
+        if self.deleting.is_some() {
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
+        }
 
         ui.heading("Find Duplicates");
         ui.label("Scans folders and finds byte-identical files using a size → partial-hash → full-hash funnel.");
@@ -216,10 +232,16 @@ impl DupTab {
                 self.select_all_but_first();
             }
             if ui
-                .add_enabled(!self.selected.is_empty(), egui::Button::new("🗑 Delete selected (to Trash)"))
+                .add_enabled(
+                    !self.selected.is_empty() && self.deleting.is_none(),
+                    egui::Button::new("🗑 Delete selected (to Trash)"),
+                )
                 .clicked()
             {
                 self.delete_selected();
+            }
+            if self.deleting.is_some() {
+                ui.weak("Deleting…");
             }
         });
 
