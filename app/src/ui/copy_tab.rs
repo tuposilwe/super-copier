@@ -75,6 +75,12 @@ impl CopyTab {
         self.job.is_some()
     }
 
+    /// Switches to Move mode — used when this tab is reached via the
+    /// "Move with Super Copier" Explorer context menu entry.
+    pub fn set_move_mode(&mut self) {
+        self.mode = Mode::Move;
+    }
+
     fn bytes_in_flight(&self) -> u64 {
         self.active.values().map(|f| f.bytes_done).sum()
     }

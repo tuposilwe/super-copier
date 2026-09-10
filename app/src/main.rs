@@ -1,12 +1,16 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod dnd;
+mod ipc;
 mod notify;
 mod reveal;
 mod ui;
 mod util;
 mod worker;
 
+use std::path::PathBuf;
+
+use crossbeam_channel::Receiver;
 use eframe::egui;
 
 /// 256x256 RGBA8 pixels, pre-rendered from `assets/icon-1024.png` (see
@@ -22,6 +26,25 @@ fn app_icon() -> egui::IconData {
 }
 
 fn main() -> eframe::Result {
+    // `--move` plus a list of files/folders is how the Explorer "Copy with
+    // Super Copier" / "Move with Super Copier" context menu entries invoke
+    // us (see packaging/windows/installer.nsi).
+    let mut move_mode = false;
+    let mut initial_paths = Vec::new();
+    for arg in std::env::args_os().skip(1) {
+        if arg == "--move" {
+            move_mode = true;
+        } else {
+            initial_paths.push(PathBuf::from(arg));
+        }
+    }
+
+    let Some(ipc_rx) = ipc::acquire_primary(&initial_paths, move_mode) else {
+        // Another instance is already running and now has our paths —
+        // don't open a second window.
+        return Ok(());
+    };
+
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([980.0, 680.0])
@@ -33,9 +56,9 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "Super Copier",
         native_options,
-        Box::new(|cc| {
+        Box::new(move |cc| {
             setup_style(&cc.egui_ctx);
-            Ok(Box::new(SuperCopierApp::default()))
+            Ok(Box::new(SuperCopierApp::new(ipc_rx)))
         }),
     )
 }
@@ -59,6 +82,7 @@ enum Tab {
 struct SuperCopierApp {
     tab: Tab,
     theme: egui::ThemePreference,
+    ipc_rx: Receiver<ipc::IpcMessage>,
     copy_tab: ui::copy_tab::CopyTab,
     search_tab: ui::search_tab::SearchTab,
     dup_tab: ui::dup_tab::DupTab,
@@ -67,11 +91,12 @@ struct SuperCopierApp {
     sync_tab: ui::sync_tab::SyncTab,
 }
 
-impl Default for SuperCopierApp {
-    fn default() -> Self {
+impl SuperCopierApp {
+    fn new(ipc_rx: Receiver<ipc::IpcMessage>) -> Self {
         Self {
             tab: Tab::Copy,
             theme: egui::ThemePreference::Dark,
+            ipc_rx,
             copy_tab: ui::copy_tab::CopyTab::default(),
             search_tab: ui::search_tab::SearchTab::default(),
             dup_tab: ui::dup_tab::DupTab::default(),
@@ -101,7 +126,26 @@ impl eframe::App for SuperCopierApp {
         if dnd::hovering_files(&ctx) {
             dnd::paint_overlay(&ctx, "Drop files or folders to add them to this tab");
         }
-        let dropped = dnd::take_dropped_paths(&ctx);
+        let mut dropped = dnd::take_dropped_paths(&ctx);
+
+        // Paths (and "use Move mode") forwarded from another launch of
+        // this app — e.g. Explorer's context menu, which invokes us once
+        // per selected item.
+        let mut ipc_arrived = false;
+        for msg in self.ipc_rx.try_iter() {
+            ipc_arrived = true;
+            match msg {
+                ipc::IpcMessage::Path(p) => dropped.push(p),
+                ipc::IpcMessage::UseMoveMode => self.copy_tab.set_move_mode(),
+            }
+        }
+        if ipc_arrived {
+            self.tab = Tab::Copy;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        }
+        // We only get here between frames via try_iter, so make sure we
+        // keep checking even while otherwise idle.
+        ctx.request_repaint_after(std::time::Duration::from_millis(200));
 
         egui::Panel::top("tabs").show(ui, |ui| {
             ui.add_space(4.0);

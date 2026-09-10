@@ -29,6 +29,12 @@ written in Rust, with a native GUI.
   zone on Copy/Move and Sync.
 - **Reveal in Finder/Explorer** and **desktop notifications** when a job
   finishes.
+- **Explorer context menu** (Windows installer only) — "Copy with Super
+  Copier" / "Move with Super Copier" on right-click, for files and
+  folders. Neither OS lets a third-party app replace the built-in
+  Ctrl+C/Ctrl+V or drag-and-drop copy engine, so this is the realistic
+  equivalent: a quick launch point instead of opening the app and
+  browsing to your files.
 
 ## Project layout
 
@@ -248,8 +254,9 @@ makensis -DVERSION=0.1.0 installer.nsi
 ```
 
 `installer.nsi` installs to `Program Files\Super Copier`, adds Start
-Menu and Desktop shortcuts, and registers a proper uninstaller under
-Add/Remove Programs. It compiles cleanly to a real NSIS installer `.exe`
+Menu and Desktop shortcuts, registers a proper uninstaller under
+Add/Remove Programs, and adds the Explorer context menu entries
+described below. It compiles cleanly to a real NSIS installer `.exe`
 (confirmed with `file`) — what's *not* verified is running the install
 wizard itself, since that needs an actual Windows machine (no Wine
 here). If you build the underlying `.exe` on Windows instead of
@@ -258,6 +265,31 @@ cross-compiling, just point `EXE_PATH` at it:
 ```sh
 makensis -DVERSION=0.1.0 -DEXE_PATH=..\..\target\release\super-copier.exe installer.nsi
 ```
+
+#### How the Explorer context menu avoids opening a window per file
+
+Classic Windows shell verbs (what `installer.nsi` registers under
+`HKCU\Software\Classes\*\shell\...` and `\Directory\shell\...`) only
+ever pass **one** file per invocation via `%1` — there's no registry-only
+way to get "here's the whole selection" in a single launch. When you
+select five files and click "Copy with Super Copier", Explorer runs the
+command five times.
+
+To avoid five separate windows, the app coordinates across those
+launches (`app/src/ipc.rs`): the first invocation binds a fixed
+`127.0.0.1` TCP port (used purely as local IPC — nothing is reachable
+from the network) and becomes the "primary" instance; every later
+invocation notices the port is taken, ships its path (and whether it was
+launched as `--move`) to the primary over that connection, and exits
+immediately. The primary polls for these messages every frame, the same
+way it polls background job progress, and brings its window to the
+front when something arrives.
+
+Verified end to end on this machine (the mechanism is plain
+cross-platform `std::net`, so testing it didn't require Windows): the
+first launch binds and listens (confirmed via `lsof`), and subsequent
+launches with file arguments connect, forward, and exit in ~16ms without
+opening a second window.
 
 [NSIS]: https://nsis.sourceforge.io/
 

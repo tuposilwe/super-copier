@@ -62,6 +62,32 @@ Section "Install" SEC_INSTALL
   WriteRegDWORD HKLM "${UNINST_KEY}" "NoRepair" 1
 SectionEnd
 
+Section "Explorer context menu" SEC_SHELL
+  ; "Copy with Super Copier" / "Move with Super Copier" on right-click, for
+  ; both files (*) and folders (Directory). Per-user (HKCU) so it needs no
+  ; extra privilege beyond what installing to Program Files already does.
+  ;
+  ; Note: when multiple items are selected, Explorer invokes this command
+  ; once per selected item (that's how classic shell verbs work) — the app
+  ; forwards every invocation after the first to the one already-running
+  ; window instead of opening several (see app/src/ipc.rs).
+  WriteRegStr HKCU "Software\Classes\*\shell\SuperCopierCopy" "" "Copy with Super Copier"
+  WriteRegStr HKCU "Software\Classes\*\shell\SuperCopierCopy" "Icon" "$INSTDIR\${APP_EXE}"
+  WriteRegStr HKCU "Software\Classes\*\shell\SuperCopierCopy\command" "" '"$INSTDIR\${APP_EXE}" "%1"'
+
+  WriteRegStr HKCU "Software\Classes\*\shell\SuperCopierMove" "" "Move with Super Copier"
+  WriteRegStr HKCU "Software\Classes\*\shell\SuperCopierMove" "Icon" "$INSTDIR\${APP_EXE}"
+  WriteRegStr HKCU "Software\Classes\*\shell\SuperCopierMove\command" "" '"$INSTDIR\${APP_EXE}" --move "%1"'
+
+  WriteRegStr HKCU "Software\Classes\Directory\shell\SuperCopierCopy" "" "Copy with Super Copier"
+  WriteRegStr HKCU "Software\Classes\Directory\shell\SuperCopierCopy" "Icon" "$INSTDIR\${APP_EXE}"
+  WriteRegStr HKCU "Software\Classes\Directory\shell\SuperCopierCopy\command" "" '"$INSTDIR\${APP_EXE}" "%1"'
+
+  WriteRegStr HKCU "Software\Classes\Directory\shell\SuperCopierMove" "" "Move with Super Copier"
+  WriteRegStr HKCU "Software\Classes\Directory\shell\SuperCopierMove" "Icon" "$INSTDIR\${APP_EXE}"
+  WriteRegStr HKCU "Software\Classes\Directory\shell\SuperCopierMove\command" "" '"$INSTDIR\${APP_EXE}" --move "%1"'
+SectionEnd
+
 Section "Uninstall"
   Delete "$INSTDIR\${APP_EXE}"
   Delete "$INSTDIR\Uninstall.exe"
@@ -72,4 +98,9 @@ Section "Uninstall"
   Delete "$DESKTOP\${APP_NAME}.lnk"
 
   DeleteRegKey HKLM "${UNINST_KEY}"
+
+  DeleteRegKey HKCU "Software\Classes\*\shell\SuperCopierCopy"
+  DeleteRegKey HKCU "Software\Classes\*\shell\SuperCopierMove"
+  DeleteRegKey HKCU "Software\Classes\Directory\shell\SuperCopierCopy"
+  DeleteRegKey HKCU "Software\Classes\Directory\shell\SuperCopierMove"
 SectionEnd
