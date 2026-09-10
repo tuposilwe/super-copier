@@ -1,9 +1,9 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::Instant;
 
 use eframe::egui;
-use engine::copy::{CopyEvent, CopyOptions, CopySummary, OverwritePolicy};
+use engine::copy::{CopyEvent, CopyOptions, OverwritePolicy};
 use engine::fsops;
 
 use crate::dnd;
@@ -22,6 +22,16 @@ struct ActiveFile {
     size: u64,
 }
 
+/// Running totals across every batch of the current session (there can be
+/// more than one job at once — see [`CopyTab::spawn_new_batch`]).
+#[derive(Default, Clone, Copy)]
+struct Totals {
+    files_copied: usize,
+    files_skipped: usize,
+    files_failed: usize,
+    bytes_copied: u64,
+}
+
 pub struct CopyTab {
     mode: Mode,
     sources: Vec<PathBuf>,
@@ -32,7 +42,14 @@ pub struct CopyTab {
     use_fast_path: bool,
     rename_pattern: String,
 
-    job: Option<Job<CopyEvent>>,
+    /// Usually one, but a new batch is spawned alongside the rest whenever
+    /// files are added while a transfer is already running, so more than
+    /// one can be in flight together.
+    jobs: Vec<Job<CopyEvent>>,
+    /// Sources already handed to some job this session (across every
+    /// batch) — the delta between this and `sources` is what's new since
+    /// the last batch was spawned.
+    queued: HashSet<PathBuf>,
     started_at: Option<Instant>,
     total_files: usize,
     total_bytes: u64,
@@ -40,9 +57,11 @@ pub struct CopyTab {
     /// Bytes belonging to files that have fully finished copying.
     bytes_done_complete: u64,
     /// Files currently mid-transfer (there can be several at once — the
-    /// engine copies multiple files concurrently).
+    /// engine copies multiple files concurrently, and there can be
+    /// multiple batches too).
     active: HashMap<PathBuf, ActiveFile>,
-    summary: Option<CopySummary>,
+    /// Set once every batch in the session has finished.
+    totals: Option<Totals>,
     log: Log,
 }
 
@@ -57,14 +76,15 @@ impl Default for CopyTab {
             preserve_times: true,
             use_fast_path: true,
             rename_pattern: "{name}.{ext}".to_string(),
-            job: None,
+            jobs: Vec::new(),
+            queued: HashSet::new(),
             started_at: None,
             total_files: 0,
             total_bytes: 0,
             files_done: 0,
             bytes_done_complete: 0,
             active: HashMap::new(),
-            summary: None,
+            totals: None,
             log: Log::default(),
         }
     }
@@ -72,7 +92,7 @@ impl Default for CopyTab {
 
 impl CopyTab {
     pub fn is_running(&self) -> bool {
-        self.job.is_some()
+        !self.jobs.is_empty()
     }
 
     /// Switches to Move mode — used when this tab is reached via the
@@ -86,90 +106,135 @@ impl CopyTab {
     }
 
     fn poll(&mut self) {
-        let Some(job) = &self.job else { return };
-        let mut finished = false;
-        for event in job.rx.try_iter() {
-            match event {
-                CopyEvent::Started {
-                    total_files,
-                    total_bytes,
-                } => {
-                    self.total_files = total_files;
-                    self.total_bytes = total_bytes;
-                    self.log.push(format!(
-                        "Starting: {total_files} files, {}",
-                        human_bytes(total_bytes)
-                    ));
-                }
-                CopyEvent::FileStarted { path, size } => {
-                    self.active.insert(path, ActiveFile { bytes_done: 0, size });
-                }
-                CopyEvent::FileProgress {
-                    path,
-                    bytes_done,
-                    size,
-                } => {
-                    self.active.insert(path, ActiveFile { bytes_done, size });
-                }
-                CopyEvent::FileVerified { .. } => {}
-                CopyEvent::FileDone { path } => {
-                    self.files_done += 1;
-                    if let Some(f) = self.active.remove(&path) {
-                        self.bytes_done_complete += f.size;
+        if self.jobs.is_empty() {
+            return;
+        }
+        let mut finished_indices = Vec::new();
+        for (i, job) in self.jobs.iter().enumerate() {
+            let mut batch_finished = false;
+            for event in job.rx.try_iter() {
+                match event {
+                    CopyEvent::Started {
+                        total_files,
+                        total_bytes,
+                    } => {
+                        self.total_files += total_files;
+                        self.total_bytes += total_bytes;
+                        self.log.push(format!(
+                            "Starting: {total_files} files, {}",
+                            human_bytes(total_bytes)
+                        ));
                     }
-                    self.log.push(format!("✓ {}", path.display()));
-                }
-                CopyEvent::FileSkipped { path, reason } => {
-                    self.files_done += 1;
-                    self.active.remove(&path);
-                    self.log.push(format!("↷ skipped {} ({reason})", path.display()));
-                }
-                CopyEvent::FileError { path, message } => {
-                    self.active.remove(&path);
-                    self.log.push(format!("✗ {} — {message}", path.display()));
-                }
-                CopyEvent::Finished(summary) => {
-                    self.summary = Some(summary.clone());
-                    self.bytes_done_complete = summary.bytes_copied;
-                    self.log.push(format!(
-                        "Done: {} transferred, {} skipped, {} failed in {:.1}s",
-                        summary.files_copied, summary.files_skipped, summary.files_failed, summary.elapsed_secs
-                    ));
-                    let verb = match self.mode {
-                        Mode::Copy => "Copy",
-                        Mode::Move => "Move",
-                        Mode::Rename => "Transfer",
-                    };
-                    crate::notify::notify(
-                        &format!("{verb} finished"),
-                        &format!(
-                            "{} transferred, {} skipped, {} failed",
-                            summary.files_copied, summary.files_skipped, summary.files_failed
-                        ),
-                    );
-                    finished = true;
-                }
-                CopyEvent::Cancelled => {
-                    self.log.push("Cancelled.".to_string());
-                    finished = true;
+                    CopyEvent::FileStarted { path, size } => {
+                        self.active.insert(path, ActiveFile { bytes_done: 0, size });
+                    }
+                    CopyEvent::FileProgress {
+                        path,
+                        bytes_done,
+                        size,
+                    } => {
+                        self.active.insert(path, ActiveFile { bytes_done, size });
+                    }
+                    CopyEvent::FileVerified { .. } => {}
+                    CopyEvent::FileDone { path } => {
+                        self.files_done += 1;
+                        if let Some(f) = self.active.remove(&path) {
+                            self.bytes_done_complete += f.size;
+                        }
+                        self.log.push(format!("✓ {}", path.display()));
+                    }
+                    CopyEvent::FileSkipped { path, reason } => {
+                        self.files_done += 1;
+                        self.active.remove(&path);
+                        self.log.push(format!("↷ skipped {} ({reason})", path.display()));
+                    }
+                    CopyEvent::FileError { path, message } => {
+                        self.active.remove(&path);
+                        self.log.push(format!("✗ {} — {message}", path.display()));
+                    }
+                    CopyEvent::Finished(summary) => {
+                        let totals = self.totals.get_or_insert_with(Totals::default);
+                        totals.files_copied += summary.files_copied;
+                        totals.files_skipped += summary.files_skipped;
+                        totals.files_failed += summary.files_failed;
+                        totals.bytes_copied += summary.bytes_copied;
+                        batch_finished = true;
+                    }
+                    CopyEvent::Cancelled => {
+                        batch_finished = true;
+                    }
                 }
             }
+            if batch_finished {
+                finished_indices.push(i);
+            }
         }
-        if finished {
-            self.job = None;
-            self.active.clear();
+        for i in finished_indices.into_iter().rev() {
+            self.jobs.remove(i);
+        }
+
+        if self.jobs.is_empty() {
+            // The whole session (every batch) is done.
+            self.queued.clear();
+            if let Some(totals) = self.totals {
+                let elapsed = self.started_at.map(|t| t.elapsed().as_secs_f64()).unwrap_or(0.0);
+                self.log.push(format!(
+                    "Done: {} transferred, {} skipped, {} failed in {}",
+                    totals.files_copied,
+                    totals.files_skipped,
+                    totals.files_failed,
+                    human_duration(elapsed)
+                ));
+                let verb = match self.mode {
+                    Mode::Copy => "Copy",
+                    Mode::Move => "Move",
+                    Mode::Rename => "Transfer",
+                };
+                crate::notify::notify(
+                    &format!("{verb} finished"),
+                    &format!(
+                        "{} transferred, {} skipped, {} failed",
+                        totals.files_copied, totals.files_skipped, totals.files_failed
+                    ),
+                );
+            } else {
+                self.log.push("Cancelled.".to_string());
+            }
         }
     }
 
+    /// Starts a fresh session: resets every running total and queues all
+    /// current sources. Only called when nothing is currently running (the
+    /// Start button is disabled otherwise).
     fn start(&mut self) {
         if self.sources.is_empty() {
             self.log.push("Drag in at least one file or folder first.".to_string());
             return;
         }
-        let Some(dest) = self.dest.clone() else {
+        if self.dest.is_none() {
             self.log.push("Choose a destination folder first.".to_string());
             return;
-        };
+        }
+        self.total_files = 0;
+        self.total_bytes = 0;
+        self.files_done = 0;
+        self.bytes_done_complete = 0;
+        self.active.clear();
+        self.totals = None;
+        self.queued.clear();
+        self.log.clear();
+        self.started_at = Some(Instant::now());
+        self.spawn_new_batch(self.sources.clone());
+    }
+
+    /// Spawns a job for exactly `paths` (already known not to be queued)
+    /// and marks them as queued. Used both by `start()` for the first
+    /// batch and, mid-session, for files added after that.
+    fn spawn_new_batch(&mut self, paths: Vec<PathBuf>) {
+        let Some(dest) = self.dest.clone() else { return };
+        for p in &paths {
+            self.queued.insert(p.clone());
+        }
         let options = CopyOptions {
             overwrite: self.overwrite,
             verify: self.verify,
@@ -177,19 +242,41 @@ impl CopyTab {
             threads: 0,
             use_fast_path: self.use_fast_path,
         };
-        self.total_files = 0;
-        self.total_bytes = 0;
-        self.files_done = 0;
-        self.bytes_done_complete = 0;
-        self.active.clear();
-        self.summary = None;
-        self.log.clear();
-        self.started_at = Some(Instant::now());
-        self.job = Some(match self.mode {
-            Mode::Copy => worker::spawn_copy(self.sources.clone(), dest, options),
-            Mode::Move => worker::spawn_move(self.sources.clone(), dest, options),
-            Mode::Rename => unreachable!("rename does not use the transfer job"),
-        });
+        let job = match self.mode {
+            Mode::Copy => worker::spawn_copy(paths, dest, options),
+            Mode::Move => worker::spawn_move(paths, dest, options),
+            Mode::Rename => return,
+        };
+        self.jobs.push(job);
+    }
+
+    /// While a transfer is running, folds any sources added since the last
+    /// batch into a new one immediately, instead of making the user wait
+    /// for the current batch to finish or click Start again.
+    fn absorb_new_sources(&mut self) {
+        if !self.is_running() || self.dest.is_none() {
+            return;
+        }
+        let new_paths: Vec<PathBuf> = self
+            .sources
+            .iter()
+            .filter(|p| !self.queued.contains(*p))
+            .cloned()
+            .collect();
+        if new_paths.is_empty() {
+            return;
+        }
+        self.log.push(format!(
+            "+{} item(s) added mid-transfer — picking them up now",
+            new_paths.len()
+        ));
+        self.spawn_new_batch(new_paths);
+    }
+
+    fn cancel_all(&self) {
+        for job in &self.jobs {
+            job.cancel.cancel();
+        }
     }
 
     fn rename_preview(&self) -> Vec<(String, String)> {
@@ -276,6 +363,11 @@ impl CopyTab {
             }
         }
 
+        // If a transfer is already running, any sources that just appeared
+        // (from the drop above, or from "Add Files…" below) get folded in
+        // right away instead of waiting for a fresh Start.
+        self.absorb_new_sources();
+
         if !self.sources.is_empty() {
             ui.add_space(6.0);
             self.ui_source_list(ui);
@@ -323,6 +415,11 @@ impl CopyTab {
                     if self.sources.is_empty() {
                         ui.label("Drag & drop files or folders here");
                         ui.weak("or click to browse");
+                    } else if self.is_running() {
+                        ui.label(format!(
+                            "{} item(s) — drop more to add them to the running transfer",
+                            self.sources.len()
+                        ));
                     } else {
                         ui.label(format!("{} item(s) added — drop more, or click to add files", self.sources.len()));
                     }
@@ -335,7 +432,7 @@ impl CopyTab {
     fn ui_source_list(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.label(format!("{} item(s):", self.sources.len()));
-            if ui.small_button("Clear").clicked() {
+            if ui.add_enabled(!self.is_running(), egui::Button::new("Clear")).clicked() {
                 self.sources.clear();
             }
         });
@@ -346,8 +443,11 @@ impl CopyTab {
                 let mut remove_idx = None;
                 for (i, p) in self.sources.iter().enumerate() {
                     ui.horizontal(|ui| {
+                        if self.is_running() && self.queued.contains(p) {
+                            ui.weak("✓");
+                        }
                         ui.label(p.display().to_string());
-                        if ui.small_button("✕").clicked() {
+                        if !self.is_running() && ui.small_button("✕").clicked() {
                             remove_idx = Some(i);
                         }
                     });
@@ -373,9 +473,14 @@ impl CopyTab {
                 self.start();
             }
             if ui.add_enabled(running, egui::Button::new("⏹ Cancel")).clicked() {
-                if let Some(job) = &self.job {
-                    job.cancel.cancel();
-                }
+                self.cancel_all();
+            }
+            if running {
+                ui.weak(format!(
+                    "{} batch{} running",
+                    self.jobs.len(),
+                    if self.jobs.len() == 1 { "" } else { "es" }
+                ));
             }
         });
 
@@ -435,18 +540,19 @@ impl CopyTab {
             }
         }
 
-        if let Some(summary) = &self.summary {
-            ui.colored_label(
-                egui::Color32::from_rgb(90, 200, 120),
-                format!(
-                    "✓ Done: {} transferred, {} skipped, {} failed — {} in {}",
-                    summary.files_copied,
-                    summary.files_skipped,
-                    summary.files_failed,
-                    human_bytes(summary.bytes_copied),
-                    human_duration(summary.elapsed_secs)
-                ),
-            );
+        if !self.is_running() {
+            if let Some(totals) = self.totals {
+                ui.colored_label(
+                    egui::Color32::from_rgb(90, 200, 120),
+                    format!(
+                        "✓ Done: {} transferred, {} skipped, {} failed — {}",
+                        totals.files_copied,
+                        totals.files_skipped,
+                        totals.files_failed,
+                        human_bytes(totals.bytes_copied)
+                    ),
+                );
+            }
         }
     }
 

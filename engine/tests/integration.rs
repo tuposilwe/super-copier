@@ -303,6 +303,57 @@ fn search_files_matches_by_name_case_insensitively_and_skips_dirs_by_default() {
 }
 
 #[test]
+fn concurrent_copy_batches_to_the_same_destination_dont_interfere() {
+    // This is the exact scenario the "add files mid-copy" UI feature
+    // creates: two independent copy_tree calls, running at the same time,
+    // targeting the same destination folder (including a shared nested
+    // subdirectory neither call created first).
+    let src_dir = tempfile::tempdir().unwrap();
+    let dst_dir = tempfile::tempdir().unwrap();
+
+    for i in 0..20 {
+        write_file(&src_dir.path().join(format!("batch_a/{i}.txt")), &format!("a{i}"));
+        write_file(&src_dir.path().join(format!("batch_b/{i}.txt")), &format!("b{i}"));
+    }
+
+    let (tx_a, rx_a) = crossbeam_channel::unbounded();
+    let (tx_b, rx_b) = crossbeam_channel::unbounded();
+
+    let sources_a = vec![src_dir.path().join("batch_a")];
+    let sources_b = vec![src_dir.path().join("batch_b")];
+    let dst_a = dst_dir.path().to_path_buf();
+    let dst_b = dst_dir.path().to_path_buf();
+
+    let handle_a = std::thread::spawn(move || {
+        copy::copy_tree(&sources_a, &dst_a, CopyOptions::default(), CancelToken::new(), tx_a)
+    });
+    let handle_b = std::thread::spawn(move || {
+        copy::copy_tree(&sources_b, &dst_b, CopyOptions::default(), CancelToken::new(), tx_b)
+    });
+
+    let summary_a = handle_a.join().unwrap().unwrap();
+    let summary_b = handle_b.join().unwrap().unwrap();
+    let _ = rx_a.try_iter().count();
+    let _ = rx_b.try_iter().count();
+
+    assert_eq!(summary_a.files_copied, 20);
+    assert_eq!(summary_b.files_copied, 20);
+    assert_eq!(summary_a.files_failed, 0);
+    assert_eq!(summary_b.files_failed, 0);
+
+    for i in 0..20 {
+        assert_eq!(
+            fs::read_to_string(dst_dir.path().join(format!("batch_a/{i}.txt"))).unwrap(),
+            format!("a{i}")
+        );
+        assert_eq!(
+            fs::read_to_string(dst_dir.path().join(format!("batch_b/{i}.txt"))).unwrap(),
+            format!("b{i}")
+        );
+    }
+}
+
+#[test]
 fn list_drives_returns_at_least_one_existing_path() {
     let drives = engine::drives::list_drives();
     assert!(!drives.is_empty());
