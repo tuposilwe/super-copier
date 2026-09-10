@@ -74,6 +74,10 @@ impl CopyTab {
         self.job.is_some()
     }
 
+    pub fn add_dropped(&mut self, paths: Vec<PathBuf>) {
+        self.sources.extend(paths);
+    }
+
     fn bytes_in_flight(&self) -> u64 {
         self.active.values().map(|f| f.bytes_done).sum()
     }

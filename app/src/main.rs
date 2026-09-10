@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod dnd;
 mod ui;
 mod util;
 mod worker;
@@ -60,14 +61,21 @@ impl Default for SuperCopierApp {
 
 impl eframe::App for SuperCopierApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
+
         // Keep polling background job channels smoothly while any job runs.
         let any_running = self.copy_tab.is_running()
             || self.dup_tab.is_running()
             || self.organize_tab.is_running()
             || self.sync_tab.is_running();
         if any_running {
-            ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
+            ctx.request_repaint_after(std::time::Duration::from_millis(50));
         }
+
+        if dnd::hovering_files(&ctx) {
+            dnd::paint_overlay(&ctx, "Drop files or folders to add them to this tab");
+        }
+        let dropped = dnd::take_dropped_paths(&ctx);
 
         egui::Panel::top("tabs").show(ui, |ui| {
             ui.add_space(4.0);
@@ -81,10 +89,19 @@ impl eframe::App for SuperCopierApp {
         });
 
         egui::CentralPanel::default().show(ui, |ui| match self.tab {
-            Tab::Copy => self.copy_tab.ui(ui),
-            Tab::Duplicates => self.dup_tab.ui(ui),
-            Tab::Organize => self.organize_tab.ui(ui),
-            Tab::Sync => self.sync_tab.ui(ui),
+            Tab::Copy => {
+                self.copy_tab.add_dropped(dropped);
+                self.copy_tab.ui(ui);
+            }
+            Tab::Duplicates => {
+                self.dup_tab.add_dropped(dropped);
+                self.dup_tab.ui(ui);
+            }
+            Tab::Organize => {
+                self.organize_tab.add_dropped(dropped);
+                self.organize_tab.ui(ui);
+            }
+            Tab::Sync => self.sync_tab.ui(ui, dropped),
         });
     }
 }

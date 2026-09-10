@@ -44,6 +44,16 @@ impl DupTab {
         self.job.is_some()
     }
 
+    pub fn add_dropped(&mut self, paths: Vec<PathBuf>) {
+        for p in paths {
+            if let Some(dir) = crate::dnd::as_dir(&p) {
+                if !self.roots.contains(&dir) {
+                    self.roots.push(dir);
+                }
+            }
+        }
+    }
+
     fn poll(&mut self) {
         let Some(job) = &self.job else { return };
         let mut finished = false;

@@ -31,6 +31,12 @@ impl OrganizeTab {
         self.job.is_some()
     }
 
+    pub fn add_dropped(&mut self, paths: Vec<PathBuf>) {
+        if let Some(dir) = paths.iter().find_map(|p| crate::dnd::as_dir(p)) {
+            self.dir = Some(dir);
+        }
+    }
+
     fn poll(&mut self) {
         let Some(job) = &self.job else { return };
         let mut finished = false;

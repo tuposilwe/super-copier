@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use eframe::egui;
 use engine::sync::{SyncEvent, SyncOptions, SyncSummary};
 
+use crate::dnd;
 use crate::util::Log;
 use crate::worker::{self, Job};
 
@@ -80,39 +81,38 @@ impl SyncTab {
         self.job = Some(worker::spawn_sync(src, dst, options));
     }
 
-    pub fn ui(&mut self, ui: &mut egui::Ui) {
+    pub fn ui(&mut self, ui: &mut egui::Ui, dropped: Vec<PathBuf>) {
         self.poll();
 
         ui.heading("Sync / Mirror");
-        ui.label("One-way folder sync: brings the destination up to date with the source.");
+        ui.label("One-way folder sync: brings the destination up to date with the source. Drag a folder onto either box below, or click to pick one.");
         ui.separator();
 
-        ui.horizontal(|ui| {
-            if ui.button("📂 Source…").clicked() {
-                if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                    self.src = Some(path);
-                }
+        let hovering = dnd::hovering_files(ui.ctx());
+
+        let src_resp = drop_zone(ui, "📂 Source…", &self.src, hovering);
+        if src_resp.clicked() {
+            if let Some(path) = rfd::FileDialog::new().pick_folder() {
+                self.src = Some(path);
             }
-            ui.label(
-                self.src
-                    .as_ref()
-                    .map(|p| p.display().to_string())
-                    .unwrap_or_else(|| "(no source selected)".to_string()),
-            );
-        });
-        ui.horizontal(|ui| {
-            if ui.button("📂 Destination…").clicked() {
-                if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                    self.dst = Some(path);
-                }
+        }
+
+        let dst_resp = drop_zone(ui, "📂 Destination…", &self.dst, hovering);
+        if dst_resp.clicked() {
+            if let Some(path) = rfd::FileDialog::new().pick_folder() {
+                self.dst = Some(path);
             }
-            ui.label(
-                self.dst
-                    .as_ref()
-                    .map(|p| p.display().to_string())
-                    .unwrap_or_else(|| "(no destination selected)".to_string()),
-            );
-        });
+        }
+
+        if let Some(dir) = dropped.first().and_then(|p| dnd::as_dir(p)) {
+            let drop_pos = ui.ctx().input(|i| i.pointer.interact_pos().or_else(|| i.pointer.hover_pos()));
+            match drop_pos {
+                Some(pos) if src_resp.rect.contains(pos) => self.src = Some(dir),
+                Some(pos) if dst_resp.rect.contains(pos) => self.dst = Some(dir),
+                _ if self.src.is_none() => self.src = Some(dir),
+                _ => self.dst = Some(dir),
+            }
+        }
 
         ui.horizontal(|ui| {
             ui.checkbox(&mut self.mirror, "Mirror (delete extra files in destination)");
@@ -161,4 +161,28 @@ impl SyncTab {
                 }
             });
     }
+}
+
+/// A clickable box that also acts as a drop target; returns a response
+/// whose `.rect` the caller can hit-test against the drop position and
+/// whose `.clicked()` opens a folder picker.
+fn drop_zone(ui: &mut egui::Ui, label: &str, current: &Option<PathBuf>, hovering_files: bool) -> egui::Response {
+    let fill = if hovering_files {
+        ui.visuals().selection.bg_fill.linear_multiply(0.3)
+    } else {
+        ui.visuals().faint_bg_color
+    };
+    let inner = egui::Frame::group(ui.style()).fill(fill).show(ui, |ui| {
+        ui.set_min_width(ui.available_width());
+        ui.horizontal(|ui| {
+            ui.label(label);
+            ui.label(
+                current
+                    .as_ref()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| "(none — click or drop a folder here)".to_string()),
+            );
+        });
+    });
+    ui.interact(inner.response.rect, ui.id().with(label), egui::Sense::click())
 }
