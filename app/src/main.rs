@@ -45,10 +45,6 @@ fn main() -> eframe::Result {
         return Ok(());
     };
 
-    // Must happen before any window is created — see notify::windows for why.
-    #[cfg(windows)]
-    notify::windows::register_app_id();
-
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([980.0, 680.0])
