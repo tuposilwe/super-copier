@@ -1,0 +1,17 @@
+[package]
+name = "super-copier"
+version = "0.1.0"
+edition = "2021"
+default-run = "super-copier"
+
+[[bin]]
+name = "super-copier"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0.104"
+crossbeam-channel = "0.5.17"
+eframe = "0.36.2"
+egui = "0.36.2"
+engine = { version = "0.1.0", path = "../engine" }
+rfd = "0.17.2"
