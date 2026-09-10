@@ -51,6 +51,7 @@ impl OrganizeTab {
                 }
                 OrganizeEvent::Finished { moved } => {
                     self.log.push(format!("Done: moved {moved} file(s)."));
+                    crate::notify::notify("Organize finished", &format!("{moved} file(s) moved"));
                     finished = true;
                 }
             }

@@ -74,6 +74,10 @@ impl DupTab {
                         "Found {groups} duplicate group(s), wasting {}",
                         human_bytes(wasted_bytes)
                     ));
+                    crate::notify::notify(
+                        "Duplicate scan finished",
+                        &format!("{groups} group(s) found, {} wasted", human_bytes(wasted_bytes)),
+                    );
                     finished = true;
                 }
                 DupEvent::Cancelled => {

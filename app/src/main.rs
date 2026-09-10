@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod dnd;
+mod notify;
 mod reveal;
 mod ui;
 mod util;

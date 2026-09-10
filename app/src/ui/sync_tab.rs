@@ -52,6 +52,13 @@ impl SyncTab {
                         "Done: {} copied, {} updated, {} deleted, {} failed",
                         summary.copied, summary.updated, summary.deleted, summary.failed
                     ));
+                    crate::notify::notify(
+                        "Sync finished",
+                        &format!(
+                            "{} copied, {} updated, {} deleted",
+                            summary.copied, summary.updated, summary.deleted
+                        ),
+                    );
                     self.summary = Some(summary);
                     finished = true;
                 }

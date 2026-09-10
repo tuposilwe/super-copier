@@ -129,6 +129,18 @@ impl CopyTab {
                         "Done: {} transferred, {} skipped, {} failed in {:.1}s",
                         summary.files_copied, summary.files_skipped, summary.files_failed, summary.elapsed_secs
                     ));
+                    let verb = match self.mode {
+                        Mode::Copy => "Copy",
+                        Mode::Move => "Move",
+                        Mode::Rename => "Transfer",
+                    };
+                    crate::notify::notify(
+                        &format!("{verb} finished"),
+                        &format!(
+                            "{} transferred, {} skipped, {} failed",
+                            summary.files_copied, summary.files_skipped, summary.files_failed
+                        ),
+                    );
                     finished = true;
                 }
                 CopyEvent::Cancelled => {

@@ -74,6 +74,10 @@ impl LargeFilesTab {
                 LargeFileEvent::Finished { count, total_bytes } => {
                     self.total_bytes = total_bytes;
                     self.log.push(format!("Found {count} file(s) over the threshold, {}", human_bytes(total_bytes)));
+                    crate::notify::notify(
+                        "Big Files scan finished",
+                        &format!("{count} file(s) found, {}", human_bytes(total_bytes)),
+                    );
                     finished = true;
                 }
                 LargeFileEvent::Cancelled => {

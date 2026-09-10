@@ -48,6 +48,7 @@ impl SearchTab {
                 SearchEvent::Found(m) => self.results.push(m),
                 SearchEvent::Finished { count } => {
                     self.log.push(format!("Found {count} match(es)."));
+                    crate::notify::notify("Search finished", &format!("{count} match(es) for \"{}\"", self.query));
                     finished = true;
                 }
                 SearchEvent::Cancelled => {
