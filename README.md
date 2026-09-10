@@ -22,14 +22,23 @@ written in Rust, with a native GUI.
   --delete`).
 - **Delete to Trash / Recycle Bin** — duplicate cleanup is recoverable by
   default.
+- **Whole-disk search** — find files by name, defaulting to every
+  attached drive when no folder is chosen; Duplicates and Big Files also
+  get a one-click "Scan Entire Disk".
+- **Drag-and-drop** everywhere, including a dedicated destination drop
+  zone on Copy/Move and Sync.
+- **Reveal in Finder/Explorer** and **desktop notifications** when a job
+  finishes.
 
 ## Project layout
 
 - `engine/` — the core library: copy engine, hashing, duplicate finder,
-  file ops (move/rename/delete/organize), sync. Has no UI dependencies,
-  so it's also usable from a CLI or tests.
+  large-file finder, whole-disk search, drive listing, file ops
+  (move/rename/delete/organize), sync. Has no UI dependencies, so it's
+  also usable from a CLI or tests.
 - `app/` — the `super-copier` binary: an [egui]/[eframe] desktop UI with
-  four tabs (Copy, Duplicates, Organize, Sync).
+  six tabs (Copy/Move/Rename, Search, Duplicates, Big Files, Organize,
+  Sync).
 
 [egui]: https://github.com/emilk/egui
 [eframe]: https://github.com/emilk/egui/tree/master/crates/eframe
@@ -58,14 +67,31 @@ cargo run -p super-copier
 
 ### Building the Windows binary
 
-This was developed and tested on macOS. The Windows-specific code (the
-`CopyFileExW` fast path in `engine/src/platform/windows.rs`) has been
-type-checked against the real `windows-sys` bindings via
-`cargo check --target x86_64-pc-windows-msvc`, but **has not been run on
-real Windows yet**. Before relying on it:
+This was developed on macOS. Two ways to get a `.exe`:
+
+**Cross-compile from macOS** (verified working — this is how the project
+was actually built and linked for Windows during development):
 
 ```sh
-# On a Windows machine, or via a Windows CI runner:
+brew install mingw-w64
+rustup target add x86_64-pc-windows-gnu
+cargo build --release -p super-copier --target x86_64-pc-windows-gnu
+# -> target/x86_64-pc-windows-gnu/release/super-copier.exe
+```
+
+This repo's `.cargo/config.toml` points the `x86_64-pc-windows-gnu`
+target at the MinGW linker so the command above works without extra
+flags. The whole dependency graph — including wgpu/winit/egui, the
+`CopyFileExW` fast path, and the WinRT notification backend — compiles
+and links cleanly this way. What this *can't* verify is runtime behavior
+(no Wine is installed here), so treat a fresh Windows machine as the
+final check, especially for the OS-specific paths (`CopyFileExW`,
+Explorer's `/select,` reveal, toast notifications).
+
+**Build natively on Windows** (MSVC, the more common target for
+distribution):
+
+```sh
 cargo build --release
 cargo test -p engine
 ```
