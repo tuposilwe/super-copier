@@ -211,12 +211,55 @@ scope here.
 
 The `.exe` from `cargo build --release` (see above) is already a normal
 double-clickable Windows application, icon included — no bundling step
-needed. For an installer (Setup.exe / MSI), a tool like [Inno Setup] or
-[WiX] would wrap the `.exe` plus any assets, but that isn't set up in
-this repo.
+needed to just run it.
 
-[Inno Setup]: https://jrsoftware.org/isinfo.php
-[WiX]: https://wixtoolset.org/
+## Installers
+
+For actually distributing the app (rather than handing someone a bare
+binary), `packaging/` has a real installer for each platform.
+
+### macOS: `.dmg`
+
+```sh
+./packaging/macos/build_dmg.sh
+# -> packaging/macos/SuperCopier.dmg
+```
+
+Builds the release binary, assembles `Super Copier.app` (see
+[Packaging](#packaging) above), ad-hoc signs it, and wraps it in a
+`.dmg` with an `Applications` symlink alongside it — the standard
+"drag the app onto Applications" flow. Verified: the script runs
+end-to-end, the resulting `.dmg` mounts, and the app inside launches.
+
+The same ad-hoc-signature caveat from the `.app` section applies: this
+`.dmg` will trigger Gatekeeper's "unidentified developer" prompt on any
+Mac other than the one that built it.
+
+### Windows: `SuperCopierSetup.exe`
+
+Built with [NSIS] (`brew install makensis` — a real Windows installer
+compiler that happens to also run on macOS/Linux):
+
+```sh
+cargo build --release -p super-copier --target x86_64-pc-windows-gnu
+cd packaging/windows
+makensis -DVERSION=0.1.0 installer.nsi
+# -> packaging/windows/SuperCopierSetup.exe
+```
+
+`installer.nsi` installs to `Program Files\Super Copier`, adds Start
+Menu and Desktop shortcuts, and registers a proper uninstaller under
+Add/Remove Programs. It compiles cleanly to a real NSIS installer `.exe`
+(confirmed with `file`) — what's *not* verified is running the install
+wizard itself, since that needs an actual Windows machine (no Wine
+here). If you build the underlying `.exe` on Windows instead of
+cross-compiling, just point `EXE_PATH` at it:
+
+```sh
+makensis -DVERSION=0.1.0 -DEXE_PATH=..\..\target\release\super-copier.exe installer.nsi
+```
+
+[NSIS]: https://nsis.sourceforge.io/
 
 ## Notes on the fast-copy design
 
