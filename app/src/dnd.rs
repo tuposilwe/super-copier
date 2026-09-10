@@ -29,6 +29,31 @@ pub fn as_dir(path: &Path) -> Option<PathBuf> {
     }
 }
 
+/// A clickable box that also acts as a drop target: shows `current` (or a
+/// placeholder), highlights while files are being dragged over the window,
+/// and returns a response whose `.rect` the caller can hit-test against the
+/// drop position and whose `.clicked()` should open a folder picker.
+pub fn drop_zone(ui: &mut egui::Ui, label: &str, current: &Option<PathBuf>, hovering_files: bool) -> egui::Response {
+    let fill = if hovering_files {
+        ui.visuals().selection.bg_fill.linear_multiply(0.3)
+    } else {
+        ui.visuals().faint_bg_color
+    };
+    let inner = egui::Frame::group(ui.style()).fill(fill).show(ui, |ui| {
+        ui.set_min_width(ui.available_width());
+        ui.horizontal(|ui| {
+            ui.label(label);
+            ui.label(
+                current
+                    .as_ref()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| "(none — click or drop a folder here)".to_string()),
+            );
+        });
+    });
+    ui.interact(inner.response.rect, ui.id().with(label), egui::Sense::click())
+}
+
 /// Paints a full-window translucent "drop to add" overlay. Call every frame
 /// while [`hovering_files`] is true.
 pub fn paint_overlay(ctx: &egui::Context, text: &str) {

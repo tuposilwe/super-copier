@@ -6,6 +6,7 @@ use eframe::egui;
 use engine::copy::{CopyEvent, CopyOptions, CopySummary, OverwritePolicy};
 use engine::fsops;
 
+use crate::dnd;
 use crate::util::{human_bytes, human_rate, Log};
 use crate::worker::{self, Job};
 
@@ -72,10 +73,6 @@ impl Default for CopyTab {
 impl CopyTab {
     pub fn is_running(&self) -> bool {
         self.job.is_some()
-    }
-
-    pub fn add_dropped(&mut self, paths: Vec<PathBuf>) {
-        self.sources.extend(paths);
     }
 
     fn bytes_in_flight(&self) -> u64 {
@@ -148,7 +145,7 @@ impl CopyTab {
 
     fn start(&mut self) {
         if self.sources.is_empty() {
-            self.log.push("Add at least one source file or folder first.".to_string());
+            self.log.push("Drag in at least one file or folder first.".to_string());
             return;
         }
         let Some(dest) = self.dest.clone() else {
@@ -193,7 +190,7 @@ impl CopyTab {
 
     fn do_rename(&mut self) {
         if self.sources.is_empty() {
-            self.log.push("Add at least one file or folder to rename first.".to_string());
+            self.log.push("Drag in at least one file or folder to rename first.".to_string());
             return;
         }
         self.log.clear();
@@ -208,41 +205,125 @@ impl CopyTab {
         }
     }
 
-    pub fn ui(&mut self, ui: &mut egui::Ui) {
+    pub fn ui(&mut self, ui: &mut egui::Ui, dropped: Vec<PathBuf>) {
         self.poll();
 
-        ui.heading("Copy / Move / Rename");
-        ui.horizontal(|ui| {
-            ui.selectable_value(&mut self.mode, Mode::Copy, "📄 Copy");
-            ui.selectable_value(&mut self.mode, Mode::Move, "✂ Move");
-            ui.selectable_value(&mut self.mode, Mode::Rename, "✏ Rename");
-        });
-        ui.label(match self.mode {
-            Mode::Copy => "Copy files and folders with multi-threaded, OS-accelerated transfers.",
-            Mode::Move => "Move files and folders — instant same-volume rename, or copy-then-delete across volumes.",
-            Mode::Rename => "Rename files in place, optionally as a batch using a pattern.",
-        });
-        ui.separator();
+        let hovering = dnd::hovering_files(ui.ctx());
 
+        // Mode: the one choice that matters up front.
         ui.horizontal(|ui| {
-            if ui.button("➕ Add Files…").clicked() {
-                if let Some(paths) = rfd::FileDialog::new().pick_files() {
-                    self.sources.extend(paths);
-                }
+            ui.selectable_value(&mut self.mode, Mode::Copy, "📄  Copy");
+            ui.selectable_value(&mut self.mode, Mode::Move, "✂  Move");
+            ui.selectable_value(&mut self.mode, Mode::Rename, "✏  Rename");
+        });
+        ui.add_space(6.0);
+
+        // The big, obvious drop target.
+        let source_resp = self.ui_source_drop_zone(ui, hovering);
+
+        // Destination — its own drop target, only relevant outside Rename mode.
+        let dest_resp = if self.mode != Mode::Rename {
+            ui.add_space(6.0);
+            Some(dnd::drop_zone(ui, "📂  Destination", &self.dest, hovering))
+        } else {
+            None
+        };
+
+        if source_resp.clicked() {
+            if let Some(paths) = rfd::FileDialog::new().pick_files() {
+                self.sources.extend(paths);
             }
-            if ui.button("➕ Add Folder…").clicked() {
+        }
+        if let Some(resp) = &dest_resp {
+            if resp.clicked() {
                 if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                    self.sources.push(path);
+                    self.dest = Some(path);
                 }
             }
-            if ui.button("🗑 Clear Sources").clicked() {
+        }
+
+        // Route this frame's OS drop: onto the destination box sets the
+        // destination, anywhere else adds sources.
+        if !dropped.is_empty() {
+            let drop_pos = ui.ctx().input(|i| i.pointer.interact_pos().or_else(|| i.pointer.hover_pos()));
+            let dropped_on_dest = dest_resp
+                .as_ref()
+                .is_some_and(|r| drop_pos.is_some_and(|p| r.rect.contains(p)));
+            if dropped_on_dest {
+                if let Some(dir) = dropped.first().and_then(|p| dnd::as_dir(p)) {
+                    self.dest = Some(dir);
+                }
+            } else {
+                self.sources.extend(dropped);
+            }
+        }
+
+        if !self.sources.is_empty() {
+            ui.add_space(6.0);
+            self.ui_source_list(ui);
+        }
+
+        ui.add_space(8.0);
+
+        if self.mode == Mode::Rename {
+            self.ui_rename(ui);
+        } else {
+            self.ui_transfer(ui);
+        }
+
+        if !self.log.is_empty() {
+            ui.add_space(4.0);
+            egui::CollapsingHeader::new("Log").default_open(false).show(ui, |ui| {
+                egui::ScrollArea::vertical()
+                    .id_salt("copy_log_scroll")
+                    .max_height(180.0)
+                    .stick_to_bottom(true)
+                    .show(ui, |ui| {
+                        for line in self.log.iter() {
+                            ui.label(line);
+                        }
+                    });
+            });
+        }
+    }
+
+    fn ui_source_drop_zone(&self, ui: &mut egui::Ui, hovering: bool) -> egui::Response {
+        let fill = if hovering {
+            ui.visuals().selection.bg_fill.linear_multiply(0.3)
+        } else {
+            ui.visuals().faint_bg_color
+        };
+        let stroke = ui.visuals().widgets.noninteractive.bg_stroke;
+        let inner = egui::Frame::group(ui.style())
+            .fill(fill)
+            .stroke(stroke)
+            .show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                ui.set_min_height(70.0);
+                ui.vertical_centered(|ui| {
+                    ui.add_space(10.0);
+                    if self.sources.is_empty() {
+                        ui.label("Drag & drop files or folders here");
+                        ui.weak("or click to browse");
+                    } else {
+                        ui.label(format!("{} item(s) added — drop more, or click to add files", self.sources.len()));
+                    }
+                    ui.add_space(10.0);
+                });
+            });
+        ui.interact(inner.response.rect, ui.id().with("source_drop_zone"), egui::Sense::click())
+    }
+
+    fn ui_source_list(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.label(format!("{} item(s):", self.sources.len()));
+            if ui.small_button("Clear").clicked() {
                 self.sources.clear();
             }
         });
-
         egui::ScrollArea::vertical()
             .id_salt("sources_scroll")
-            .max_height(120.0)
+            .max_height(100.0)
             .show(ui, |ui| {
                 let mut remove_idx = None;
                 for (i, p) in self.sources.iter().enumerate() {
@@ -257,77 +338,20 @@ impl CopyTab {
                     self.sources.remove(i);
                 }
             });
-
-        ui.separator();
-
-        if self.mode == Mode::Rename {
-            self.ui_rename(ui);
-        } else {
-            self.ui_transfer(ui);
-        }
-
-        ui.separator();
-        ui.label("Log:");
-        egui::ScrollArea::vertical()
-            .id_salt("copy_log_scroll")
-            .max_height(180.0)
-            .stick_to_bottom(true)
-            .show(ui, |ui| {
-                for line in self.log.iter() {
-                    ui.label(line);
-                }
-            });
     }
 
     fn ui_transfer(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            if ui.button("📂 Choose Destination…").clicked() {
-                if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                    self.dest = Some(path);
-                }
-            }
-            ui.label(
-                self.dest
-                    .as_ref()
-                    .map(|p| p.display().to_string())
-                    .unwrap_or_else(|| "(no destination selected)".to_string()),
-            );
-        });
-
-        ui.separator();
-
-        ui.horizontal(|ui| {
-            ui.label("On conflict:");
-            egui::ComboBox::from_id_salt("overwrite_policy")
-                .selected_text(match self.overwrite {
-                    OverwritePolicy::Always => "Overwrite",
-                    OverwritePolicy::Skip => "Skip existing",
-                    OverwritePolicy::SkipIfSameSize => "Skip if same size (resume)",
-                })
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(
-                        &mut self.overwrite,
-                        OverwritePolicy::SkipIfSameSize,
-                        "Skip if same size (resume)",
-                    );
-                    ui.selectable_value(&mut self.overwrite, OverwritePolicy::Skip, "Skip existing");
-                    ui.selectable_value(&mut self.overwrite, OverwritePolicy::Always, "Overwrite");
-                });
-            ui.checkbox(&mut self.verify, "Verify (hash check)");
-            ui.checkbox(&mut self.preserve_times, "Preserve timestamps");
-            ui.checkbox(&mut self.use_fast_path, "Use OS fast-copy");
-        });
-
-        ui.separator();
-
-        ui.horizontal(|ui| {
             let running = self.is_running();
             let start_label = match self.mode {
-                Mode::Copy => "▶ Start Copy",
-                Mode::Move => "▶ Start Move",
+                Mode::Copy => "▶  Copy",
+                Mode::Move => "▶  Move",
                 Mode::Rename => unreachable!(),
             };
-            if ui.add_enabled(!running, egui::Button::new(start_label)).clicked() {
+            if ui
+                .add_enabled(!running, egui::Button::new(start_label).min_size(egui::vec2(100.0, 28.0)))
+                .clicked()
+            {
                 self.start();
             }
             if ui.add_enabled(running, egui::Button::new("⏹ Cancel")).clicked() {
@@ -337,9 +361,32 @@ impl CopyTab {
             }
         });
 
-        ui.separator();
+        egui::CollapsingHeader::new("⚙ Advanced options").default_open(false).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("On conflict:");
+                egui::ComboBox::from_id_salt("overwrite_policy")
+                    .selected_text(match self.overwrite {
+                        OverwritePolicy::Always => "Overwrite",
+                        OverwritePolicy::Skip => "Skip existing",
+                        OverwritePolicy::SkipIfSameSize => "Skip if same size (resume)",
+                    })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut self.overwrite,
+                            OverwritePolicy::SkipIfSameSize,
+                            "Skip if same size (resume)",
+                        );
+                        ui.selectable_value(&mut self.overwrite, OverwritePolicy::Skip, "Skip existing");
+                        ui.selectable_value(&mut self.overwrite, OverwritePolicy::Always, "Overwrite");
+                    });
+            });
+            ui.checkbox(&mut self.verify, "Verify (hash check)");
+            ui.checkbox(&mut self.preserve_times, "Preserve timestamps");
+            ui.checkbox(&mut self.use_fast_path, "Use OS fast-copy");
+        });
 
         if self.total_files > 0 {
+            ui.add_space(6.0);
             let bytes_done = self.bytes_done_complete + self.bytes_in_flight();
             let frac = if self.total_bytes > 0 {
                 bytes_done as f32 / self.total_bytes as f32
@@ -347,7 +394,7 @@ impl CopyTab {
                 0.0
             };
             ui.label(format!(
-                "Overall: {}/{} files, {} / {}",
+                "{}/{} files — {} / {}",
                 self.files_done,
                 self.total_files,
                 human_bytes(bytes_done),
@@ -358,20 +405,7 @@ impl CopyTab {
             if let Some(started) = self.started_at {
                 let secs = started.elapsed().as_secs_f64().max(0.001);
                 let rate = bytes_done as f64 / secs;
-                ui.label(format!("Throughput: {}", human_rate(rate)));
-            }
-
-            if !self.active.is_empty() {
-                ui.label(format!("Transferring {} file(s) in parallel:", self.active.len()));
-                let mut active: Vec<(&PathBuf, &ActiveFile)> = self.active.iter().collect();
-                active.sort_by_key(|a| std::cmp::Reverse(a.1.bytes_done));
-                for (path, f) in active.into_iter().take(6) {
-                    let frac = if f.size > 0 { f.bytes_done as f32 / f.size as f32 } else { 1.0 };
-                    ui.horizontal(|ui| {
-                        ui.add(egui::ProgressBar::new(frac.clamp(0.0, 1.0)).desired_width(120.0));
-                        ui.label(path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default());
-                    });
-                }
+                ui.weak(human_rate(rate));
             }
         }
 
@@ -379,7 +413,7 @@ impl CopyTab {
             ui.colored_label(
                 egui::Color32::from_rgb(90, 200, 120),
                 format!(
-                    "Finished: {} transferred, {} skipped, {} failed — {} in {:.1}s",
+                    "✓ Done: {} transferred, {} skipped, {} failed — {} in {:.1}s",
                     summary.files_copied,
                     summary.files_skipped,
                     summary.files_failed,
@@ -395,18 +429,17 @@ impl CopyTab {
             ui.label("Pattern:");
             ui.text_edit_singleline(&mut self.rename_pattern);
         });
-        ui.label("Tokens: {name} = original name, {ext} = extension, {n}/{nn}/{nnn} = zero-padded sequence number.");
+        ui.weak("{name} = original name · {ext} = extension · {n}/{nn}/{nnn} = numbered");
 
-        if ui.button("✏ Rename").clicked() {
+        if ui.button("✏  Rename").clicked() {
             self.do_rename();
         }
 
         if !self.sources.is_empty() {
-            ui.separator();
-            ui.label("Preview:");
+            ui.add_space(6.0);
             egui::ScrollArea::vertical()
                 .id_salt("rename_preview_scroll")
-                .max_height(160.0)
+                .max_height(140.0)
                 .show(ui, |ui| {
                     for (old_name, new_name) in self.rename_preview() {
                         ui.label(format!("{old_name} → {new_name}"));

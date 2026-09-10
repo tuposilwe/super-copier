@@ -90,14 +90,14 @@ impl SyncTab {
 
         let hovering = dnd::hovering_files(ui.ctx());
 
-        let src_resp = drop_zone(ui, "📂 Source…", &self.src, hovering);
+        let src_resp = dnd::drop_zone(ui, "📂 Source…", &self.src, hovering);
         if src_resp.clicked() {
             if let Some(path) = rfd::FileDialog::new().pick_folder() {
                 self.src = Some(path);
             }
         }
 
-        let dst_resp = drop_zone(ui, "📂 Destination…", &self.dst, hovering);
+        let dst_resp = dnd::drop_zone(ui, "📂 Destination…", &self.dst, hovering);
         if dst_resp.clicked() {
             if let Some(path) = rfd::FileDialog::new().pick_folder() {
                 self.dst = Some(path);
@@ -161,28 +161,4 @@ impl SyncTab {
                 }
             });
     }
-}
-
-/// A clickable box that also acts as a drop target; returns a response
-/// whose `.rect` the caller can hit-test against the drop position and
-/// whose `.clicked()` opens a folder picker.
-fn drop_zone(ui: &mut egui::Ui, label: &str, current: &Option<PathBuf>, hovering_files: bool) -> egui::Response {
-    let fill = if hovering_files {
-        ui.visuals().selection.bg_fill.linear_multiply(0.3)
-    } else {
-        ui.visuals().faint_bg_color
-    };
-    let inner = egui::Frame::group(ui.style()).fill(fill).show(ui, |ui| {
-        ui.set_min_width(ui.available_width());
-        ui.horizontal(|ui| {
-            ui.label(label);
-            ui.label(
-                current
-                    .as_ref()
-                    .map(|p| p.display().to_string())
-                    .unwrap_or_else(|| "(none — click or drop a folder here)".to_string()),
-            );
-        });
-    });
-    ui.interact(inner.response.rect, ui.id().with(label), egui::Sense::click())
 }

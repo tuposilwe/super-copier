@@ -44,6 +44,10 @@ impl Log {
         self.lines.clear();
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.lines.is_empty()
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = &String> {
         self.lines.iter()
     }

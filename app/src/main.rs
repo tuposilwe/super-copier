@@ -89,10 +89,7 @@ impl eframe::App for SuperCopierApp {
         });
 
         egui::CentralPanel::default().show(ui, |ui| match self.tab {
-            Tab::Copy => {
-                self.copy_tab.add_dropped(dropped);
-                self.copy_tab.ui(ui);
-            }
+            Tab::Copy => self.copy_tab.ui(ui, dropped),
             Tab::Duplicates => {
                 self.dup_tab.add_dropped(dropped);
                 self.dup_tab.ui(ui);
