@@ -103,6 +103,11 @@ impl LargeFilesTab {
         self.job = Some(worker::spawn_large_files(self.roots.clone(), options));
     }
 
+    fn scan_entire_disk(&mut self) {
+        self.roots = engine::drives::list_drives();
+        self.start();
+    }
+
     /// Applies the live search filter and chosen sort over the already
     /// scanned results — instant, since it never touches the filesystem.
     fn filtered_sorted(&self) -> Vec<FileEntry> {
@@ -158,6 +163,16 @@ impl LargeFilesTab {
             }
             ui.label("Min size (MB):");
             ui.add(egui::DragValue::new(&mut self.min_size_mb).range(1.0..=1_000_000.0).speed(10.0));
+        });
+
+        ui.horizontal(|ui| {
+            if ui
+                .add_enabled(!self.is_running(), egui::Button::new("🖴 Scan Entire Disk"))
+                .on_hover_text("Scan every attached drive, ignoring any folders added above")
+                .clicked()
+            {
+                self.scan_entire_disk();
+            }
         });
 
         egui::ScrollArea::vertical()

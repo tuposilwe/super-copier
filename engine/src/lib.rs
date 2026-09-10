@@ -5,6 +5,7 @@ pub mod fsops;
 pub mod hash;
 pub mod large_files;
 pub mod platform;
+pub mod search;
 pub mod sync;
 
 use std::path::PathBuf;

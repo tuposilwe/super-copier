@@ -105,6 +105,11 @@ impl DupTab {
         self.job = Some(worker::spawn_duplicates(self.roots.clone(), options));
     }
 
+    fn scan_entire_disk(&mut self) {
+        self.roots = engine::drives::list_drives();
+        self.start();
+    }
+
     fn select_all_but_first(&mut self) {
         self.selected.clear();
         for g in &self.groups {
@@ -155,6 +160,16 @@ impl DupTab {
             }
             ui.label("Min size (MB):");
             ui.add(egui::DragValue::new(&mut self.min_size_mb).range(0.0..=10000.0).speed(0.1));
+        });
+
+        ui.horizontal(|ui| {
+            if ui
+                .add_enabled(!self.is_running(), egui::Button::new("🖴 Scan Entire Disk"))
+                .on_hover_text("Scan every attached drive, ignoring any folders added above")
+                .clicked()
+            {
+                self.scan_entire_disk();
+            }
         });
 
         egui::ScrollArea::vertical()

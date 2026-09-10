@@ -34,6 +34,7 @@ fn setup_style(ctx: &egui::Context) {
 #[derive(PartialEq, Eq, Clone, Copy)]
 enum Tab {
     Copy,
+    Search,
     Duplicates,
     BigFiles,
     Organize,
@@ -43,6 +44,7 @@ enum Tab {
 struct SuperCopierApp {
     tab: Tab,
     copy_tab: ui::copy_tab::CopyTab,
+    search_tab: ui::search_tab::SearchTab,
     dup_tab: ui::dup_tab::DupTab,
     large_files_tab: ui::large_files_tab::LargeFilesTab,
     organize_tab: ui::organize_tab::OrganizeTab,
@@ -54,6 +56,7 @@ impl Default for SuperCopierApp {
         Self {
             tab: Tab::Copy,
             copy_tab: ui::copy_tab::CopyTab::default(),
+            search_tab: ui::search_tab::SearchTab::default(),
             dup_tab: ui::dup_tab::DupTab::default(),
             large_files_tab: ui::large_files_tab::LargeFilesTab::default(),
             organize_tab: ui::organize_tab::OrganizeTab::default(),
@@ -68,6 +71,7 @@ impl eframe::App for SuperCopierApp {
 
         // Keep polling background job channels smoothly while any job runs.
         let any_running = self.copy_tab.is_running()
+            || self.search_tab.is_running()
             || self.dup_tab.is_running()
             || self.large_files_tab.is_running()
             || self.organize_tab.is_running()
@@ -85,6 +89,7 @@ impl eframe::App for SuperCopierApp {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut self.tab, Tab::Copy, "📁 Copy / Move / Rename");
+                ui.selectable_value(&mut self.tab, Tab::Search, "🔎 Search");
                 ui.selectable_value(&mut self.tab, Tab::Duplicates, "🔍 Duplicates");
                 ui.selectable_value(&mut self.tab, Tab::BigFiles, "🐘 Big Files");
                 ui.selectable_value(&mut self.tab, Tab::Organize, "🗂 Organize");
@@ -95,6 +100,10 @@ impl eframe::App for SuperCopierApp {
 
         egui::CentralPanel::default().show(ui, |ui| match self.tab {
             Tab::Copy => self.copy_tab.ui(ui, dropped),
+            Tab::Search => {
+                self.search_tab.add_dropped(dropped);
+                self.search_tab.ui(ui);
+            }
             Tab::Duplicates => {
                 self.dup_tab.add_dropped(dropped);
                 self.dup_tab.ui(ui);

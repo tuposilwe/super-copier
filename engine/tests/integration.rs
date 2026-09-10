@@ -5,6 +5,7 @@ use engine::copy::{self, CopyOptions, OverwritePolicy};
 use engine::duplicates::{self, DupOptions};
 use engine::fsops::{self, OrganizeStrategy};
 use engine::large_files::{self, LargeFilesOptions};
+use engine::search::{self, SearchOptions};
 use engine::sync::{self, SyncOptions};
 use engine::CancelToken;
 
@@ -268,6 +269,37 @@ fn find_large_files_returns_only_files_over_the_threshold_sorted_desc() {
     assert_eq!(results[0].size, 20_000);
     assert_eq!(results[1].path.file_name().unwrap(), "medium.bin");
     assert_eq!(results[1].size, 5_000);
+}
+
+#[test]
+fn search_files_matches_by_name_case_insensitively_and_skips_dirs_by_default() {
+    let dir = tempfile::tempdir().unwrap();
+    write_file(&dir.path().join("Vacation_Photo.jpg"), "x");
+    write_file(&dir.path().join("other.txt"), "x");
+    write_file(&dir.path().join("subdir/vacation_notes.txt"), "x");
+    std::fs::create_dir_all(dir.path().join("vacation_folder")).unwrap();
+
+    let (tx, _rx) = crossbeam_channel::unbounded();
+    let results = search::search_files(
+        &[dir.path().to_path_buf()],
+        SearchOptions {
+            query: "vacation".to_string(),
+            case_sensitive: false,
+            include_dirs: false,
+        },
+        CancelToken::new(),
+        tx,
+    )
+    .unwrap();
+
+    let names: Vec<String> = results
+        .iter()
+        .map(|m| m.path.file_name().unwrap().to_string_lossy().to_string())
+        .collect();
+    assert_eq!(results.len(), 2);
+    assert!(names.contains(&"Vacation_Photo.jpg".to_string()));
+    assert!(names.contains(&"vacation_notes.txt".to_string()));
+    assert!(results.iter().all(|m| !m.is_dir));
 }
 
 #[test]
