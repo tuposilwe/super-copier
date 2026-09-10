@@ -1,4 +1,7 @@
 use std::collections::VecDeque;
+use std::path::PathBuf;
+
+use eframe::egui;
 
 pub fn human_bytes(bytes: u64) -> String {
     const UNITS: [&str; 6] = ["B", "KB", "MB", "GB", "TB", "PB"];
@@ -57,4 +60,26 @@ impl Default for Log {
     fn default() -> Self {
         Self::new(200)
     }
+}
+
+/// A button that opens a menu of locally attached drives/volumes (drive
+/// letters like `C:\`, `D:\` on Windows; mounted volumes on macOS), so the
+/// user can add a whole drive as a scan root in one click instead of
+/// browsing to it. Returns the drive picked this frame, if any.
+pub fn drives_menu_button(ui: &mut egui::Ui) -> Option<PathBuf> {
+    let mut chosen = None;
+    ui.menu_button("💽 Add Drive", |ui| {
+        let drives = engine::drives::list_drives();
+        if drives.is_empty() {
+            ui.label("(no drives found)");
+        }
+        for drive in drives {
+            let label = drive.display().to_string();
+            if ui.button(label).clicked() {
+                chosen = Some(drive);
+                ui.close();
+            }
+        }
+    });
+    chosen
 }

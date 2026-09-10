@@ -6,7 +6,7 @@ use engine::fsops;
 use engine::large_files::{FileEntry, LargeFileEvent, LargeFilesOptions};
 
 use crate::dnd;
-use crate::util::{human_bytes, Log};
+use crate::util::{self, human_bytes, Log};
 use crate::worker::{self, Job};
 
 #[derive(PartialEq, Clone, Copy)]
@@ -146,6 +146,11 @@ impl LargeFilesTab {
             if ui.button("➕ Add Folder…").clicked() {
                 if let Some(path) = rfd::FileDialog::new().pick_folder() {
                     self.roots.push(path);
+                }
+            }
+            if let Some(drive) = util::drives_menu_button(ui) {
+                if !self.roots.contains(&drive) {
+                    self.roots.push(drive);
                 }
             }
             if ui.button("🗑 Clear").clicked() {

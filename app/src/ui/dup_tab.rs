@@ -5,7 +5,7 @@ use eframe::egui;
 use engine::duplicates::{DupEvent, DupOptions, DuplicateGroup};
 use engine::fsops;
 
-use crate::util::{human_bytes, Log};
+use crate::util::{self, human_bytes, Log};
 use crate::worker::{self, Job};
 
 pub struct DupTab {
@@ -143,6 +143,11 @@ impl DupTab {
             if ui.button("➕ Add Folder…").clicked() {
                 if let Some(path) = rfd::FileDialog::new().pick_folder() {
                     self.roots.push(path);
+                }
+            }
+            if let Some(drive) = util::drives_menu_button(ui) {
+                if !self.roots.contains(&drive) {
+                    self.roots.push(drive);
                 }
             }
             if ui.button("🗑 Clear").clicked() {

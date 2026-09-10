@@ -269,3 +269,12 @@ fn find_large_files_returns_only_files_over_the_threshold_sorted_desc() {
     assert_eq!(results[1].path.file_name().unwrap(), "medium.bin");
     assert_eq!(results[1].size, 5_000);
 }
+
+#[test]
+fn list_drives_returns_at_least_one_existing_path() {
+    let drives = engine::drives::list_drives();
+    assert!(!drives.is_empty());
+    for d in &drives {
+        assert!(d.exists(), "listed drive {} does not exist", d.display());
+    }
+}

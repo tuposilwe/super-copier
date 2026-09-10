@@ -1,4 +1,5 @@
 pub mod copy;
+pub mod drives;
 pub mod duplicates;
 pub mod fsops;
 pub mod hash;
