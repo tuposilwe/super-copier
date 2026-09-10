@@ -2,6 +2,7 @@ pub mod copy;
 pub mod duplicates;
 pub mod fsops;
 pub mod hash;
+pub mod large_files;
 pub mod platform;
 pub mod sync;
 

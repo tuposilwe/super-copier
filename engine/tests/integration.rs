@@ -4,6 +4,7 @@ use std::path::Path;
 use engine::copy::{self, CopyOptions, OverwritePolicy};
 use engine::duplicates::{self, DupOptions};
 use engine::fsops::{self, OrganizeStrategy};
+use engine::large_files::{self, LargeFilesOptions};
 use engine::sync::{self, SyncOptions};
 use engine::CancelToken;
 
@@ -244,4 +245,27 @@ fn rename_batch_renames_in_order() {
     assert!(renamed[0].exists());
     assert!(renamed[1].exists());
     assert!(!dir.path().join("one.txt").exists());
+}
+
+#[test]
+fn find_large_files_returns_only_files_over_the_threshold_sorted_desc() {
+    let dir = tempfile::tempdir().unwrap();
+    write_file(&dir.path().join("small.txt"), &"x".repeat(10));
+    write_file(&dir.path().join("medium.bin"), &"x".repeat(5_000));
+    write_file(&dir.path().join("large.bin"), &"x".repeat(20_000));
+
+    let (tx, _rx) = crossbeam_channel::unbounded();
+    let results = large_files::find_large_files(
+        &[dir.path().to_path_buf()],
+        LargeFilesOptions { min_size: 1_000 },
+        CancelToken::new(),
+        tx,
+    )
+    .unwrap();
+
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0].path.file_name().unwrap(), "large.bin");
+    assert_eq!(results[0].size, 20_000);
+    assert_eq!(results[1].path.file_name().unwrap(), "medium.bin");
+    assert_eq!(results[1].size, 5_000);
 }

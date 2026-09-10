@@ -35,6 +35,7 @@ fn setup_style(ctx: &egui::Context) {
 enum Tab {
     Copy,
     Duplicates,
+    BigFiles,
     Organize,
     Sync,
 }
@@ -43,6 +44,7 @@ struct SuperCopierApp {
     tab: Tab,
     copy_tab: ui::copy_tab::CopyTab,
     dup_tab: ui::dup_tab::DupTab,
+    large_files_tab: ui::large_files_tab::LargeFilesTab,
     organize_tab: ui::organize_tab::OrganizeTab,
     sync_tab: ui::sync_tab::SyncTab,
 }
@@ -53,6 +55,7 @@ impl Default for SuperCopierApp {
             tab: Tab::Copy,
             copy_tab: ui::copy_tab::CopyTab::default(),
             dup_tab: ui::dup_tab::DupTab::default(),
+            large_files_tab: ui::large_files_tab::LargeFilesTab::default(),
             organize_tab: ui::organize_tab::OrganizeTab::default(),
             sync_tab: ui::sync_tab::SyncTab::default(),
         }
@@ -66,6 +69,7 @@ impl eframe::App for SuperCopierApp {
         // Keep polling background job channels smoothly while any job runs.
         let any_running = self.copy_tab.is_running()
             || self.dup_tab.is_running()
+            || self.large_files_tab.is_running()
             || self.organize_tab.is_running()
             || self.sync_tab.is_running();
         if any_running {
@@ -82,6 +86,7 @@ impl eframe::App for SuperCopierApp {
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut self.tab, Tab::Copy, "📁 Copy / Move / Rename");
                 ui.selectable_value(&mut self.tab, Tab::Duplicates, "🔍 Duplicates");
+                ui.selectable_value(&mut self.tab, Tab::BigFiles, "🐘 Big Files");
                 ui.selectable_value(&mut self.tab, Tab::Organize, "🗂 Organize");
                 ui.selectable_value(&mut self.tab, Tab::Sync, "🔄 Sync");
             });
@@ -93,6 +98,10 @@ impl eframe::App for SuperCopierApp {
             Tab::Duplicates => {
                 self.dup_tab.add_dropped(dropped);
                 self.dup_tab.ui(ui);
+            }
+            Tab::BigFiles => {
+                self.large_files_tab.add_dropped(dropped);
+                self.large_files_tab.ui(ui);
             }
             Tab::Organize => {
                 self.organize_tab.add_dropped(dropped);
