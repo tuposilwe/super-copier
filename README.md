@@ -101,6 +101,76 @@ turn off "Use OS fast-copy" in the Copy tab (or set
 `CopyOptions::use_fast_path = false`), which uses the portable chunked
 copy on every platform.
 
+## Packaging
+
+`cargo build --release` alone gives you a bare executable — it runs, but
+it's not something Finder/Explorer treats as an installable app (no
+icon, no Dock entry, and on macOS it's just a Unix binary rather than a
+`.app`).
+
+### macOS: build a `.app` bundle
+
+```sh
+cargo build --release -p super-copier
+
+APP="target/release/Super Copier.app"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+cp target/release/super-copier "$APP/Contents/MacOS/super-copier"
+
+cat > "$APP/Contents/Info.plist" <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>Super Copier</string>
+	<key>CFBundleDisplayName</key>
+	<string>Super Copier</string>
+	<key>CFBundleIdentifier</key>
+	<string>dev.tuposilwe.supercopier</string>
+	<key>CFBundleVersion</key>
+	<string>0.1.0</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+	<key>CFBundleExecutable</key>
+	<string>super-copier</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleSignature</key>
+	<string>????</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>11.0</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+</dict>
+</plist>
+EOF
+
+# Ad-hoc sign so Gatekeeper treats it as a normal local app instead of
+# flagging it as damaged/unsigned.
+codesign --force --deep -s - "$APP"
+```
+
+Then drag `target/release/Super Copier.app` into `/Applications` (or
+just double-click it in place — it runs fine either way).
+
+This ad-hoc signature is only good for **this Mac**. If you copy the
+`.app` to another machine or hand it to someone else, Gatekeeper will
+block it there until they right-click → Open once (no real Apple
+Developer certificate is involved). For real distribution you'd need to
+sign with a Developer ID and notarize via `xcrun notarytool` — out of
+scope here.
+
+### Windows
+
+The `.exe` from `cargo build --release` (see above) is already a normal
+double-clickable Windows application — no bundling step needed. For an
+installer (Setup.exe / MSI), a tool like [Inno Setup] or [WiX] would
+wrap the `.exe` plus any assets, but that isn't set up in this repo.
+
+[Inno Setup]: https://jrsoftware.org/isinfo.php
+[WiX]: https://wixtoolset.org/
+
 ## Notes on the fast-copy design
 
 - On **macOS/APFS**, `clonefile(2)` makes same-volume copies effectively
