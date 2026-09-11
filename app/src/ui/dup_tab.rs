@@ -5,6 +5,7 @@ use std::time::Instant;
 use eframe::egui;
 use engine::duplicates::{DupEvent, DupOptions, DuplicateGroup};
 
+use crate::dialog::DeferredPicker;
 use crate::util::{self, eta, human_bytes, human_duration, Log};
 use crate::worker::{self, Job};
 
@@ -24,6 +25,7 @@ pub struct DupTab {
     /// `worker::spawn_delete_to_trash` for why it isn't done inline), along
     /// with the channel that reports back whether it worked.
     deleting: Option<worker::DeleteJob>,
+    picker: DeferredPicker,
     log: Log,
 }
 
@@ -41,6 +43,7 @@ impl Default for DupTab {
             wasted_bytes: 0,
             selected: HashSet::new(),
             deleting: None,
+            picker: DeferredPicker::default(),
             log: Log::default(),
         }
     }
@@ -162,6 +165,9 @@ impl DupTab {
 
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         self.poll();
+        if let Some(paths) = self.picker.poll() {
+            self.roots.extend(paths);
+        }
         if self.deleting.is_some() {
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
         }
@@ -172,9 +178,7 @@ impl DupTab {
 
         ui.horizontal(|ui| {
             if ui.button("➕ Add Folder…").clicked() {
-                if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                    self.roots.push(path);
-                }
+                self.picker.request_folder();
             }
             if let Some(drive) = util::drives_menu_button(ui) {
                 if !self.roots.contains(&drive) {

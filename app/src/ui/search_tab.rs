@@ -5,6 +5,7 @@ use std::time::Instant;
 use eframe::egui;
 use engine::search::{SearchEvent, SearchMatch, SearchOptions};
 
+use crate::dialog::DeferredPicker;
 use crate::dnd;
 use crate::util::{self, human_bytes, human_duration, Log};
 use crate::worker::{self, Job};
@@ -25,6 +26,7 @@ pub struct SearchTab {
     /// `worker::spawn_delete_to_trash`), with the channel reporting back
     /// whether it worked.
     deleting: Option<worker::DeleteJob>,
+    picker: DeferredPicker,
     log: Log,
 }
 
@@ -124,6 +126,9 @@ impl SearchTab {
 
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         self.poll();
+        if let Some(paths) = self.picker.poll() {
+            self.roots.extend(paths);
+        }
         if self.deleting.is_some() {
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
         }
@@ -163,9 +168,7 @@ impl SearchTab {
                 format!("Scope: {} folder(s)", self.roots.len())
             });
             if ui.button("➕ Add Folder…").clicked() {
-                if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                    self.roots.push(path);
-                }
+                self.picker.request_folder();
             }
             if let Some(drive) = util::drives_menu_button(ui) {
                 if !self.roots.contains(&drive) {

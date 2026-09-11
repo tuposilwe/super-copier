@@ -4,6 +4,7 @@ use crossbeam_channel::Sender;
 use eframe::egui;
 use engine::share::{self, DiscoveryEvent, FileToSend, IncomingManifest, PeerInfo, ReceiveEvent, SendEvent};
 
+use crate::dialog::DeferredPicker;
 use crate::dnd;
 use crate::util::{human_bytes, Log};
 use crate::worker::{self, Job};
@@ -18,10 +19,12 @@ pub struct ShareTab {
 
     receiver: Option<Job<ReceiveEvent>>,
     dest_dir: PathBuf,
+    dest_picker: DeferredPicker,
     pending_request: Option<(IncomingManifest, Sender<bool>)>,
     receive_progress: Option<Progress>,
 
     sources: Vec<PathBuf>,
+    source_picker: DeferredPicker,
     send_job: Option<Job<SendEvent>>,
     send_target: Option<PeerInfo>,
     send_progress: Option<Progress>,
@@ -49,9 +52,11 @@ impl Default for ShareTab {
             peers: Vec::new(),
             receiver: None,
             dest_dir,
+            dest_picker: DeferredPicker::default(),
             pending_request: None,
             receive_progress: None,
             sources: Vec::new(),
+            source_picker: DeferredPicker::default(),
             send_job: None,
             send_target: None,
             send_progress: None,
@@ -181,6 +186,14 @@ impl ShareTab {
 
     pub fn ui(&mut self, ui: &mut egui::Ui, dropped: Vec<PathBuf>) {
         self.poll();
+        if let Some(mut paths) = self.dest_picker.poll() {
+            if let Some(path) = paths.pop() {
+                self.dest_dir = path;
+            }
+        }
+        if let Some(paths) = self.source_picker.poll() {
+            self.sources.extend(paths);
+        }
         if self.is_running() || self.receive_progress.is_some() {
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(200));
         }
@@ -202,9 +215,7 @@ impl ShareTab {
             ui.label("Save received files to:");
             ui.label(self.dest_dir.display().to_string());
             if ui.small_button("Change…").clicked() {
-                if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                    self.dest_dir = path;
-                }
+                self.dest_picker.request_folder();
             }
         });
         if !self.discoverable {
@@ -271,9 +282,7 @@ impl ShareTab {
         ui.separator();
         let source_resp = self.ui_source_drop_zone(ui);
         if source_resp.clicked() {
-            if let Some(paths) = rfd::FileDialog::new().pick_files() {
-                self.sources.extend(paths);
-            }
+            self.source_picker.request_files();
         }
         if !self.sources.is_empty() {
             ui.horizontal(|ui| {

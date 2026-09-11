@@ -6,6 +6,7 @@ use eframe::egui;
 use engine::copy::{CopyEvent, CopyOptions, OverwritePolicy};
 use engine::fsops;
 
+use crate::dialog::DeferredPicker;
 use crate::dnd;
 use crate::util::{eta, human_bytes, human_duration, human_rate, Log};
 use crate::worker::{self, Job};
@@ -62,6 +63,8 @@ pub struct CopyTab {
     active: HashMap<PathBuf, ActiveFile>,
     /// Set once every batch in the session has finished.
     totals: Option<Totals>,
+    source_picker: DeferredPicker,
+    dest_picker: DeferredPicker,
     log: Log,
 }
 
@@ -85,6 +88,8 @@ impl Default for CopyTab {
             bytes_done_complete: 0,
             active: HashMap::new(),
             totals: None,
+            source_picker: DeferredPicker::default(),
+            dest_picker: DeferredPicker::default(),
             log: Log::default(),
         }
     }
@@ -312,6 +317,14 @@ impl CopyTab {
 
     pub fn ui(&mut self, ui: &mut egui::Ui, dropped: Vec<PathBuf>) {
         self.poll();
+        if let Some(paths) = self.source_picker.poll() {
+            self.sources.extend(paths);
+        }
+        if let Some(mut paths) = self.dest_picker.poll() {
+            if let Some(path) = paths.pop() {
+                self.dest = Some(path);
+            }
+        }
 
         let hovering = dnd::hovering_files(ui.ctx());
 
@@ -335,15 +348,11 @@ impl CopyTab {
         };
 
         if source_resp.clicked() {
-            if let Some(paths) = rfd::FileDialog::new().pick_files() {
-                self.sources.extend(paths);
-            }
+            self.source_picker.request_files();
         }
         if let Some(resp) = &dest_resp {
             if resp.clicked() {
-                if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                    self.dest = Some(path);
-                }
+                self.dest_picker.request_folder();
             }
         }
 

@@ -4,6 +4,7 @@ use std::time::Instant;
 use eframe::egui;
 use engine::fsops::{OrganizeEvent, OrganizeStrategy};
 
+use crate::dialog::DeferredPicker;
 use crate::util::{human_duration, Log};
 use crate::worker::{self, Job};
 
@@ -13,6 +14,7 @@ pub struct OrganizeTab {
     job: Option<Job<OrganizeEvent>>,
     started_at: Option<Instant>,
     moved: usize,
+    picker: DeferredPicker,
     log: Log,
 }
 
@@ -24,6 +26,7 @@ impl Default for OrganizeTab {
             job: None,
             started_at: None,
             moved: 0,
+            picker: DeferredPicker::default(),
             log: Log::default(),
         }
     }
@@ -78,6 +81,11 @@ impl OrganizeTab {
 
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         self.poll();
+        if let Some(mut paths) = self.picker.poll() {
+            if let Some(path) = paths.pop() {
+                self.dir = Some(path);
+            }
+        }
 
         ui.heading("Auto-Organize");
         ui.label("Sorts files directly inside a folder into subfolders by type and/or date.");
@@ -85,9 +93,7 @@ impl OrganizeTab {
 
         ui.horizontal(|ui| {
             if ui.button("📂 Choose Folder…").clicked() {
-                if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                    self.dir = Some(path);
-                }
+                self.picker.request_folder();
             }
             ui.label(
                 self.dir

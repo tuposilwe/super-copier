@@ -4,6 +4,7 @@ use std::time::Instant;
 use eframe::egui;
 use engine::sync::{SyncEvent, SyncOptions, SyncSummary};
 
+use crate::dialog::DeferredPicker;
 use crate::dnd;
 use crate::util::{human_duration, Log};
 use crate::worker::{self, Job};
@@ -14,6 +15,8 @@ pub struct SyncTab {
     dst: Option<PathBuf>,
     mirror: bool,
     verify: bool,
+    src_picker: DeferredPicker,
+    dst_picker: DeferredPicker,
 
     job: Option<Job<SyncEvent>>,
     started_at: Option<Instant>,
@@ -95,6 +98,16 @@ impl SyncTab {
 
     pub fn ui(&mut self, ui: &mut egui::Ui, dropped: Vec<PathBuf>) {
         self.poll();
+        if let Some(mut paths) = self.src_picker.poll() {
+            if let Some(path) = paths.pop() {
+                self.src = Some(path);
+            }
+        }
+        if let Some(mut paths) = self.dst_picker.poll() {
+            if let Some(path) = paths.pop() {
+                self.dst = Some(path);
+            }
+        }
 
         ui.heading("Sync / Mirror");
         ui.label("One-way folder sync: brings the destination up to date with the source. Drag a folder onto either box below, or click to pick one.");
@@ -104,16 +117,12 @@ impl SyncTab {
 
         let src_resp = dnd::drop_zone(ui, "📂 Source…", &self.src, hovering);
         if src_resp.clicked() {
-            if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                self.src = Some(path);
-            }
+            self.src_picker.request_folder();
         }
 
         let dst_resp = dnd::drop_zone(ui, "📂 Destination…", &self.dst, hovering);
         if dst_resp.clicked() {
-            if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                self.dst = Some(path);
-            }
+            self.dst_picker.request_folder();
         }
 
         if let Some(dir) = dropped.first().and_then(|p| dnd::as_dir(p)) {
