@@ -6,3 +6,4 @@ packaging/windows-msi/*.msi
 packaging/windows-msi/*.wixpdb
 packaging/linux/*.deb
 packaging/linux/super-copier-linux-x86_64.tar.gz
+/Releases
