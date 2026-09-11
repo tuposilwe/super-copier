@@ -15,7 +15,7 @@ eframe = { version = "0.36.2", default-features = false, features = ["default_fo
 egui = "0.36.2"
 engine = { version = "0.1.0", path = "../engine" }
 gethostname = "1.1.0"
-notify-rust = "4.18.0"
+notify-rust = { version = "4.18.0", features = ["preview-macos-un"] }
 rfd = "0.17.2"
 
 [build-dependencies]
