@@ -59,6 +59,23 @@
 //! is safe to call every time — after the first grant/denial it returns
 //! immediately without re-prompting — so no separate "have we asked
 //! before" state is needed here.
+//!
+//! One more wrinkle, found after that fix still produced no visible
+//! notification in real use despite System Settings showing everything
+//! correctly enabled: `Notification::show()`'s blocking send
+//! (`mac_usernotifications::send_blocking`) requires the *main thread's*
+//! run loop to be idle (`CFRunLoop::main().is_waiting()`) at the exact
+//! moment it's called — it returns `Err(MainThreadNotRunning)` otherwise,
+//! silently on a background thread (only an `eprintln!`, invisible in a
+//! normal GUI launch). Every real caller here fires notify() the instant a
+//! job finishes, which is also the instant `main.rs` stops requesting
+//! continuous 50ms repaints for that job — i.e. right when the run loop is
+//! *least* likely to have settled into "waiting" yet. Reproduced directly:
+//! simulating 60 frames of continuous repaint (an "active scan") and
+//! firing notify() on the exact frame it stops reliably hit this same
+//! `Mainthread not running` error. It's transient — the run loop settles
+//! within well under a second — so retrying the send a few times with a
+//! short delay, rather than giving up on the first attempt, is the fix.
 
 pub fn notify(summary: &str, body: &str) {
     let summary = summary.to_string();
@@ -91,8 +108,16 @@ pub fn notify(summary: &str, body: &str) {
         #[cfg(windows)]
         notification.sound_name("Default");
 
-        if let Err(e) = notification.show() {
-            eprintln!("desktop notification failed: {e}");
+        const MAX_ATTEMPTS: u32 = 8;
+        for attempt in 1..=MAX_ATTEMPTS {
+            match notification.show() {
+                Ok(_) => return,
+                Err(e) if attempt < MAX_ATTEMPTS => {
+                    eprintln!("desktop notification attempt {attempt} failed, retrying: {e}");
+                    std::thread::sleep(std::time::Duration::from_millis(150));
+                }
+                Err(e) => eprintln!("desktop notification failed after {MAX_ATTEMPTS} attempts: {e}"),
+            }
         }
     });
 }
