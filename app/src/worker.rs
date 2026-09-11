@@ -2,10 +2,11 @@
 //! [`CancelToken`] plus a channel the UI can poll each frame with
 //! `try_recv`/`try_iter` (never blocking the UI thread).
 
+use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use crossbeam_channel::Receiver;
-use engine::{copy, duplicates, fsops, large_files, search, sync, CancelToken};
+use engine::{copy, duplicates, fsops, large_files, search, share, sync, CancelToken};
 
 pub struct Job<E> {
     pub cancel: CancelToken,
@@ -111,4 +112,40 @@ pub fn spawn_delete_to_trash(paths: Vec<PathBuf>) -> Receiver<Result<usize, Stri
         let _ = tx.send(result);
     });
     rx
+}
+
+/// Broadcasts our presence on the LAN and listens for other Super Copier
+/// instances doing the same, until cancelled.
+pub fn spawn_discovery(name: String, session_id: [u8; 16]) -> Job<share::DiscoveryEvent> {
+    let cancel = CancelToken::new();
+    let (tx, rx) = crossbeam_channel::unbounded();
+    let cancel2 = cancel.clone();
+    std::thread::spawn(move || {
+        share::run_discovery(name, session_id, cancel2, tx);
+    });
+    Job { cancel, rx }
+}
+
+/// Listens for incoming file transfers, saving accepted ones under
+/// `dest_dir`, until cancelled.
+pub fn spawn_share_receiver(dest_dir: PathBuf) -> Job<share::ReceiveEvent> {
+    let cancel = CancelToken::new();
+    let (tx, rx) = crossbeam_channel::unbounded();
+    let cancel2 = cancel.clone();
+    std::thread::spawn(move || {
+        share::run_receiver(dest_dir, cancel2, tx);
+    });
+    Job { cancel, rx }
+}
+
+/// Sends `files` to `peer_addr`. The other side must accept before any
+/// bytes are transferred — see `share::send_files`.
+pub fn spawn_share_send(peer_addr: SocketAddr, sender_name: String, files: Vec<share::FileToSend>) -> Job<share::SendEvent> {
+    let cancel = CancelToken::new();
+    let (tx, rx) = crossbeam_channel::unbounded();
+    let cancel2 = cancel.clone();
+    std::thread::spawn(move || {
+        let _ = share::send_files(peer_addr, &sender_name, files, cancel2, tx);
+    });
+    Job { cancel, rx }
 }

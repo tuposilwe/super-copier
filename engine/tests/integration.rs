@@ -353,6 +353,129 @@ fn concurrent_copy_batches_to_the_same_destination_dont_interfere() {
     }
 }
 
+// Both sub-tests below bind engine::share's fixed ports (DISCOVERY_PORT /
+// TRANSFER_PORT), so they're combined into one #[test] run sequentially
+// rather than two separate ones that could race for the same port under
+// cargo test's default parallelism.
+#[test]
+fn share_transfer_and_discovery() {
+    use engine::share;
+    use std::net::SocketAddr;
+
+    // --- transfer: send accepts, files land correctly, and a
+    // path-traversal attempt in the manifest is neutralized rather than
+    // escaping the destination folder ---
+    let src_dir = tempfile::tempdir().unwrap();
+    let dst_dir = tempfile::tempdir().unwrap();
+    write_file(&src_dir.path().join("a.txt"), "hello");
+    write_file(&src_dir.path().join("sub/b.txt"), "world");
+
+    let recv_cancel = CancelToken::new();
+    let (recv_tx, recv_rx) = crossbeam_channel::unbounded();
+    let recv_cancel2 = recv_cancel.clone();
+    let recv_dest = dst_dir.path().to_path_buf();
+    let recv_handle = std::thread::spawn(move || {
+        share::run_receiver(recv_dest, recv_cancel2, recv_tx);
+    });
+
+    // Give the listener a moment to bind before we connect.
+    std::thread::sleep(std::time::Duration::from_millis(200));
+
+    let files = vec![
+        share::FileToSend {
+            abs_path: src_dir.path().join("a.txt"),
+            rel_path: "a.txt".to_string(),
+            size: 5,
+        },
+        share::FileToSend {
+            abs_path: src_dir.path().join("sub/b.txt"),
+            rel_path: "../../etc/evil.txt".to_string(), // traversal attempt
+            size: 5,
+        },
+    ];
+
+    let peer_addr: SocketAddr = format!("127.0.0.1:{}", share::TRANSFER_PORT).parse().unwrap();
+    let (send_tx, send_rx) = crossbeam_channel::unbounded();
+    let send_handle = std::thread::spawn(move || {
+        share::send_files(peer_addr, "test-sender", files, CancelToken::new(), send_tx)
+    });
+
+    // Auto-accept the incoming request from the receiver side.
+    let mut finished = None;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while finished.is_none() && std::time::Instant::now() < deadline {
+        if let Ok(event) = recv_rx.recv_timeout(std::time::Duration::from_millis(200)) {
+            match event {
+                share::ReceiveEvent::IncomingRequest { manifest, respond } => {
+                    assert_eq!(manifest.sender_name, "test-sender");
+                    assert_eq!(manifest.files.len(), 2);
+                    let _ = respond.send(true);
+                }
+                share::ReceiveEvent::Finished { files_received, .. } => {
+                    finished = Some(files_received);
+                }
+                share::ReceiveEvent::Failed(msg) => panic!("receive failed: {msg}"),
+                share::ReceiveEvent::Progress { .. } => {}
+            }
+        }
+    }
+    assert_eq!(finished, Some(2), "receiver never reported completion");
+
+    send_handle.join().unwrap().unwrap();
+    let _ = send_rx.try_iter().count();
+
+    assert_eq!(fs::read_to_string(dst_dir.path().join("a.txt")).unwrap(), "hello");
+    // The traversal attempt ("../../etc/evil.txt") has its ".." components
+    // stripped, landing at dst_dir/etc/evil.txt — structurally impossible
+    // to land anywhere outside dst_dir, since the sanitized path never
+    // contains ".." for `dst_dir.join(..)` to walk back up through.
+    assert_eq!(fs::read_to_string(dst_dir.path().join("etc/evil.txt")).unwrap(), "world");
+
+    recv_cancel.cancel();
+    // Nudge the listener out of accept() so the thread actually exits and
+    // releases TRANSFER_PORT before the discovery sub-test binds it too.
+    let _ = std::net::TcpStream::connect(peer_addr);
+    recv_handle.join().unwrap();
+
+    // --- discovery: two peers with different session IDs find each other
+    // and don't discover themselves ---
+    let disc_a_cancel = CancelToken::new();
+    let disc_b_cancel = CancelToken::new();
+    let (a_tx, a_rx) = crossbeam_channel::unbounded();
+    let (b_tx, b_rx) = crossbeam_channel::unbounded();
+    let a_cancel2 = disc_a_cancel.clone();
+    let a_handle = std::thread::spawn(move || {
+        share::run_discovery("Peer A".to_string(), [1u8; 16], a_cancel2, a_tx);
+    });
+    let b_cancel2 = disc_b_cancel.clone();
+    let b_handle = std::thread::spawn(move || {
+        share::run_discovery("Peer B".to_string(), [2u8; 16], b_cancel2, b_tx);
+    });
+
+    let mut a_found_b = false;
+    let mut b_found_a = false;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while (!a_found_b || !b_found_a) && std::time::Instant::now() < deadline {
+        if let Ok(share::DiscoveryEvent::PeerFound(p)) = a_rx.recv_timeout(std::time::Duration::from_millis(200)) {
+            if p.name == "Peer B" {
+                a_found_b = true;
+            }
+        }
+        if let Ok(share::DiscoveryEvent::PeerFound(p)) = b_rx.recv_timeout(std::time::Duration::from_millis(200)) {
+            if p.name == "Peer A" {
+                b_found_a = true;
+            }
+        }
+    }
+    disc_a_cancel.cancel();
+    disc_b_cancel.cancel();
+    a_handle.join().unwrap();
+    b_handle.join().unwrap();
+
+    assert!(a_found_b, "Peer A never discovered Peer B");
+    assert!(b_found_a, "Peer B never discovered Peer A");
+}
+
 #[test]
 fn list_drives_returns_at_least_one_existing_path() {
     let drives = engine::drives::list_drives();

@@ -35,6 +35,12 @@ file-management tool written in Rust, with a native GUI.
   Ctrl+C/Ctrl+V or drag-and-drop copy engine, so this is the realistic
   equivalent: a quick launch point instead of opening the app and
   browsing to your files.
+- **Share** — send files directly between two computers both running
+  Super Copier on the same network. Peers are found automatically (UDP
+  broadcast), the transfer itself is a direct TCP connection — no cloud,
+  no account, no size limit beyond disk space. The receiving side always
+  has to explicitly accept an incoming transfer (sender name + file list
+  + total size shown first) before anything is written to disk.
 
 ## Project layout
 

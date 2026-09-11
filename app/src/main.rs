@@ -77,6 +77,7 @@ enum Tab {
     BigFiles,
     Organize,
     Sync,
+    Share,
 }
 
 struct SuperCopierApp {
@@ -89,6 +90,7 @@ struct SuperCopierApp {
     large_files_tab: ui::large_files_tab::LargeFilesTab,
     organize_tab: ui::organize_tab::OrganizeTab,
     sync_tab: ui::sync_tab::SyncTab,
+    share_tab: ui::share_tab::ShareTab,
 }
 
 impl SuperCopierApp {
@@ -103,6 +105,7 @@ impl SuperCopierApp {
             large_files_tab: ui::large_files_tab::LargeFilesTab::default(),
             organize_tab: ui::organize_tab::OrganizeTab::default(),
             sync_tab: ui::sync_tab::SyncTab::default(),
+            share_tab: ui::share_tab::ShareTab::default(),
         }
     }
 }
@@ -118,7 +121,8 @@ impl eframe::App for SuperCopierApp {
             || self.dup_tab.is_running()
             || self.large_files_tab.is_running()
             || self.organize_tab.is_running()
-            || self.sync_tab.is_running();
+            || self.sync_tab.is_running()
+            || self.share_tab.is_running();
         if any_running {
             ctx.request_repaint_after(std::time::Duration::from_millis(50));
         }
@@ -156,6 +160,7 @@ impl eframe::App for SuperCopierApp {
                 ui.selectable_value(&mut self.tab, Tab::BigFiles, "🐘 Big Files");
                 ui.selectable_value(&mut self.tab, Tab::Organize, "🗂 Organize");
                 ui.selectable_value(&mut self.tab, Tab::Sync, "🔄 Sync");
+                ui.selectable_value(&mut self.tab, Tab::Share, "📡 Share");
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     self.theme.radio_buttons(ui);
@@ -183,6 +188,7 @@ impl eframe::App for SuperCopierApp {
                 self.organize_tab.ui(ui);
             }
             Tab::Sync => self.sync_tab.ui(ui, dropped),
+            Tab::Share => self.share_tab.ui(ui, dropped),
         });
     }
 }
