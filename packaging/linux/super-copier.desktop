@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Super Copier
+Comment=Fast file copy, search, and duplicate finder
+Exec=super-copier
+Icon=super-copier
+Categories=Utility;FileTools;
+Terminal=false

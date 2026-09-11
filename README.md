@@ -1,7 +1,7 @@
 # Super Copier
 
-A fast, cross-platform (Windows + macOS) file-copy and file-management tool
-written in Rust, with a native GUI.
+A fast, cross-platform (Windows + macOS + Linux) file-copy and
+file-management tool written in Rust, with a native GUI.
 
 ## Features
 
@@ -106,6 +106,37 @@ If anything in the Windows fast path misbehaves, the safe fallback is to
 turn off "Use OS fast-copy" in the Copy tab (or set
 `CopyOptions::use_fast_path = false`), which uses the portable chunked
 copy on every platform.
+
+### Building the Linux binary
+
+**Cross-compile from macOS** with [`cargo-zigbuild`][zigbuild] (uses
+[Zig](https://ziglang.org/) as the cross-linker — no Docker or Linux VM
+needed):
+
+```sh
+brew install zig
+cargo install cargo-zigbuild
+rustup target add x86_64-unknown-linux-gnu
+cargo zigbuild --release -p super-copier --target x86_64-unknown-linux-gnu
+# -> target/x86_64-unknown-linux-gnu/release/super-copier
+```
+
+Verified working: the whole dependency graph — engine (including the
+`trash` crate's Linux/freedesktop backend), and the GUI's X11 *and*
+Wayland backends (winit, wgpu, smithay-client-toolkit, x11rb) — compiles
+and fully links this way, producing a real dynamically-linked ELF
+binary. What's *not* verified is runtime behavior: there's no way to run
+a Linux binary on macOS here, so a real Linux machine is the final
+check.
+
+**Build natively on Linux:**
+
+```sh
+cargo build --release -p super-copier
+cargo test -p engine
+```
+
+[zigbuild]: https://github.com/rust-cross/cargo-zigbuild
 
 ## Icon
 
@@ -320,6 +351,31 @@ wix build installer.wxs -arch x64 -d Version=0.1.0 -d ExePath=..\..\target\relea
 ```
 
 [WiX v5]: https://wixtoolset.org/
+
+### Linux: `.deb` and a portable tarball
+
+There's no single standard Linux installer format, so `packaging/linux/`
+covers the two common cases:
+
+```sh
+./packaging/linux/build_deb.sh
+# -> packaging/linux/super-copier_0.1.0_amd64.deb
+
+./packaging/linux/build_tarball.sh
+# -> packaging/linux/super-copier-linux-x86_64.tar.gz
+```
+
+Both cross-compile from macOS via `cargo-zigbuild` automatically (or
+build natively if run on Linux), then package the binary with
+`super-copier.desktop` and an icon. The `.deb` installs to `/usr/bin`,
+`/usr/share/applications`, and `/usr/share/pixmaps` via
+`dpkg -i super-copier_0.1.0_amd64.deb`; the tarball just needs
+extracting and running — no package manager involved. `dpkg-deb` (the
+*builder*, not an installer) runs fine on macOS via `brew install dpkg`,
+so building the `.deb` doesn't need Linux either. Verified: both scripts
+run end to end here and produce well-formed packages (checked with
+`dpkg-deb --info`/`--contents` and `tar -tzv`) — actually *installing*
+and running one is, again, a real-Linux-machine check.
 
 ## Notes on the fast-copy design
 
