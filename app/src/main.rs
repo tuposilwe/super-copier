@@ -76,6 +76,7 @@ enum Tab {
     Search,
     Duplicates,
     BigFiles,
+    DiskUsage,
     Organize,
     Sync,
     Share,
@@ -89,6 +90,7 @@ struct SuperCopierApp {
     search_tab: ui::search_tab::SearchTab,
     dup_tab: ui::dup_tab::DupTab,
     large_files_tab: ui::large_files_tab::LargeFilesTab,
+    disk_usage_tab: ui::disk_usage_tab::DiskUsageTab,
     organize_tab: ui::organize_tab::OrganizeTab,
     sync_tab: ui::sync_tab::SyncTab,
     share_tab: ui::share_tab::ShareTab,
@@ -104,6 +106,7 @@ impl SuperCopierApp {
             search_tab: ui::search_tab::SearchTab::default(),
             dup_tab: ui::dup_tab::DupTab::default(),
             large_files_tab: ui::large_files_tab::LargeFilesTab::default(),
+            disk_usage_tab: ui::disk_usage_tab::DiskUsageTab::default(),
             organize_tab: ui::organize_tab::OrganizeTab::default(),
             sync_tab: ui::sync_tab::SyncTab::default(),
             share_tab: ui::share_tab::ShareTab::default(),
@@ -159,6 +162,7 @@ impl eframe::App for SuperCopierApp {
                 ui.selectable_value(&mut self.tab, Tab::Search, "🔎 Search");
                 ui.selectable_value(&mut self.tab, Tab::Duplicates, "🔍 Duplicates");
                 ui.selectable_value(&mut self.tab, Tab::BigFiles, "🐘 Big Files");
+                ui.selectable_value(&mut self.tab, Tab::DiskUsage, "💽 Disk Usage");
                 ui.selectable_value(&mut self.tab, Tab::Organize, "🗂 Organize");
                 ui.selectable_value(&mut self.tab, Tab::Sync, "🔄 Sync");
                 ui.selectable_value(&mut self.tab, Tab::Share, "📡 Share");
@@ -184,6 +188,7 @@ impl eframe::App for SuperCopierApp {
                 self.large_files_tab.add_dropped(dropped);
                 self.large_files_tab.ui(ui);
             }
+            Tab::DiskUsage => self.disk_usage_tab.ui(ui),
             Tab::Organize => {
                 self.organize_tab.add_dropped(dropped);
                 self.organize_tab.ui(ui);

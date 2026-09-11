@@ -1,4 +1,5 @@
 pub mod copy;
+pub mod diskusage;
 pub mod drives;
 pub mod duplicates;
 pub mod fsops;

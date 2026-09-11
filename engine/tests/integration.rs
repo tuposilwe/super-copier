@@ -484,3 +484,23 @@ fn list_drives_returns_at_least_one_existing_path() {
         assert!(d.exists(), "listed drive {} does not exist", d.display());
     }
 }
+
+#[test]
+fn disk_space_reports_sane_totals_for_every_drive() {
+    let drives = engine::diskusage::drive_usage();
+    assert!(!drives.is_empty());
+    for drive in &drives {
+        let space = drive
+            .space
+            .unwrap_or_else(|| panic!("no usage reported for {}", drive.path.display()));
+        assert!(space.total > 0, "{} reported zero total space", drive.path.display());
+        assert!(
+            space.free <= space.total,
+            "{} reported free ({}) > total ({})",
+            drive.path.display(),
+            space.free,
+            space.total
+        );
+        assert!(space.used_fraction() >= 0.0 && space.used_fraction() <= 1.0);
+    }
+}

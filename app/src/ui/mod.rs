@@ -1,4 +1,5 @@
 pub mod copy_tab;
+pub mod disk_usage_tab;
 pub mod dup_tab;
 pub mod large_files_tab;
 pub mod organize_tab;
