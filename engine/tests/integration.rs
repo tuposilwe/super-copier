@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::Path;
 
+use engine::big_folders::{self, BigFoldersOptions};
 use engine::copy::{self, CopyOptions, OverwritePolicy};
 use engine::duplicates::{self, DupOptions};
 use engine::fsops::{self, OrganizeStrategy};
@@ -269,6 +270,45 @@ fn find_large_files_returns_only_files_over_the_threshold_sorted_desc() {
     assert_eq!(results[0].size, 20_000);
     assert_eq!(results[1].path.file_name().unwrap(), "medium.bin");
     assert_eq!(results[1].size, 5_000);
+}
+
+#[test]
+fn find_big_folders_reports_cumulative_size_per_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    write_file(&dir.path().join("small.txt"), &"x".repeat(10));
+    write_file(&dir.path().join("sub_a/big1.bin"), &"x".repeat(5_000));
+    write_file(&dir.path().join("sub_b/nested/big2.bin"), &"x".repeat(8_000));
+
+    let (tx, _rx) = crossbeam_channel::unbounded();
+    let results = big_folders::find_big_folders(
+        &[dir.path().to_path_buf()],
+        BigFoldersOptions { min_size: 1_000 },
+        CancelToken::new(),
+        tx,
+    )
+    .unwrap();
+
+    // root (13,010 bytes total) is unambiguously the largest.
+    assert_eq!(results[0].path, dir.path());
+    assert_eq!(results[0].size, 13_010);
+    assert_eq!(results[0].file_count, 3);
+
+    let sub_a = results.iter().find(|f| f.path.ends_with("sub_a")).unwrap();
+    assert_eq!(sub_a.size, 5_000);
+    assert_eq!(sub_a.file_count, 1);
+
+    let sub_b = results.iter().find(|f| f.path.ends_with("sub_b")).unwrap();
+    assert_eq!(sub_b.size, 8_000);
+    assert_eq!(sub_b.file_count, 1);
+
+    let nested = results.iter().find(|f| f.path.ends_with("nested")).unwrap();
+    assert_eq!(nested.size, 8_000);
+    assert_eq!(nested.file_count, 1);
+
+    // small.txt alone never crosses the 1,000-byte threshold, so no
+    // folder whose *only* content is small.txt should appear — here
+    // that's just confirming we didn't include a bogus zero-content entry.
+    assert_eq!(results.len(), 4);
 }
 
 #[test]

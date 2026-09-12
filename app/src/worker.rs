@@ -6,7 +6,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use crossbeam_channel::Receiver;
-use engine::{copy, duplicates, fsops, large_files, search, share, sync, CancelToken};
+use engine::{big_folders, copy, duplicates, fsops, large_files, search, share, sync, CancelToken};
 
 pub struct Job<E> {
     pub cancel: CancelToken,
@@ -70,6 +70,19 @@ pub fn spawn_large_files(
     let cancel2 = cancel.clone();
     std::thread::spawn(move || {
         let _ = large_files::find_large_files(&roots, options, cancel2, tx);
+    });
+    Job { cancel, rx }
+}
+
+pub fn spawn_big_folders(
+    roots: Vec<PathBuf>,
+    options: big_folders::BigFoldersOptions,
+) -> Job<big_folders::BigFolderEvent> {
+    let cancel = CancelToken::new();
+    let (tx, rx) = crossbeam_channel::unbounded();
+    let cancel2 = cancel.clone();
+    std::thread::spawn(move || {
+        let _ = big_folders::find_big_folders(&roots, options, cancel2, tx);
     });
     Job { cancel, rx }
 }
