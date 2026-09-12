@@ -244,32 +244,42 @@ impl SearchTab {
             }
         });
 
-        egui::ScrollArea::vertical().id_salt("search_results_scroll").show(ui, |ui| {
-            for m in &self.results {
-                let mut checked = self.selected.contains(&m.path);
-                ui.horizontal(|ui| {
-                    if ui.checkbox(&mut checked, "").changed() {
-                        if checked {
-                            self.selected.insert(m.path.clone());
+        // With whole-disk searches routinely returning hundreds of thousands
+        // of matches, laying out every row as a live widget every frame
+        // (the old plain-loop-in-a-ScrollArea approach) freezes the UI.
+        // show_rows only builds widgets for rows actually in the viewport.
+        let row_height = ui.spacing().interact_size.y;
+        egui::ScrollArea::vertical().id_salt("search_results_scroll").show_rows(
+            ui,
+            row_height,
+            self.results.len(),
+            |ui, row_range| {
+                for m in &self.results[row_range] {
+                    let mut checked = self.selected.contains(&m.path);
+                    ui.horizontal(|ui| {
+                        if ui.checkbox(&mut checked, "").changed() {
+                            if checked {
+                                self.selected.insert(m.path.clone());
+                            } else {
+                                self.selected.remove(&m.path);
+                            }
+                        }
+                        if ui.small_button("📂").on_hover_text("Show in Finder/Explorer").clicked() {
+                            if let Err(e) = crate::reveal::reveal(&m.path) {
+                                self.log.push(format!("Couldn't open folder: {e}"));
+                            }
+                        }
+                        ui.label(if m.is_dir { "📁" } else { "📄" });
+                        if m.is_dir {
+                            ui.monospace("—");
                         } else {
-                            self.selected.remove(&m.path);
+                            ui.monospace(human_bytes(m.size));
                         }
-                    }
-                    if ui.small_button("📂").on_hover_text("Show in Finder/Explorer").clicked() {
-                        if let Err(e) = crate::reveal::reveal(&m.path) {
-                            self.log.push(format!("Couldn't open folder: {e}"));
-                        }
-                    }
-                    ui.label(if m.is_dir { "📁" } else { "📄" });
-                    if m.is_dir {
-                        ui.monospace("—");
-                    } else {
-                        ui.monospace(human_bytes(m.size));
-                    }
-                    ui.label(m.path.display().to_string());
-                });
-            }
-        });
+                        ui.label(m.path.display().to_string());
+                    });
+                }
+            },
+        );
 
         ui.separator();
         ui.label("Log:");

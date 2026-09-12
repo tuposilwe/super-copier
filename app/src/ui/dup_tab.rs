@@ -9,6 +9,16 @@ use crate::dialog::DeferredPicker;
 use crate::util::{self, eta, human_bytes, human_duration, Log};
 use crate::worker::{self, Job};
 
+/// One virtualized row: either a group's header line or one of its paths.
+/// `groups` can hold hundreds of thousands of entries on a whole-disk scan,
+/// so the UI walks this flat, uniform-height list instead of nesting a
+/// variable-height `ui.group()` box per duplicate group — that's what
+/// `show_rows` needs to only build widgets for rows actually on screen.
+enum RowRef {
+    Header(usize),
+    Path(usize, usize),
+}
+
 pub struct DupTab {
     roots: Vec<PathBuf>,
     min_size_mb: f32,
@@ -19,6 +29,7 @@ pub struct DupTab {
     hashing_done: usize,
     hashing_total: usize,
     groups: Vec<DuplicateGroup>,
+    flat_rows: Vec<RowRef>,
     wasted_bytes: u64,
     selected: HashSet<PathBuf>,
     /// Paths currently being sent to the trash on a background thread (see
@@ -40,6 +51,7 @@ impl Default for DupTab {
             hashing_done: 0,
             hashing_total: 0,
             groups: Vec::new(),
+            flat_rows: Vec::new(),
             wasted_bytes: 0,
             selected: HashSet::new(),
             deleting: None,
@@ -64,6 +76,19 @@ impl DupTab {
         }
     }
 
+    /// Rebuilds `flat_rows` from scratch. Only needed after a deletion,
+    /// which shifts group and path indices around — the common case (a new
+    /// group arriving during a scan) instead just appends in place.
+    fn rebuild_flat_rows(&mut self) {
+        self.flat_rows.clear();
+        for gi in 0..self.groups.len() {
+            self.flat_rows.push(RowRef::Header(gi));
+            for pi in 0..self.groups[gi].paths.len() {
+                self.flat_rows.push(RowRef::Path(gi, pi));
+            }
+        }
+    }
+
     fn poll(&mut self) {
         if let Some((paths, rx)) = &self.deleting {
             if let Ok(result) = rx.try_recv() {
@@ -76,6 +101,7 @@ impl DupTab {
                         }
                         self.groups.retain(|g| g.paths.len() > 1);
                         self.selected.retain(|p| !deleted.contains(p));
+                        self.rebuild_flat_rows();
                     }
                     Err(e) => self.log.push(format!("Delete failed: {e}")),
                 }
@@ -94,6 +120,11 @@ impl DupTab {
                 }
                 DupEvent::GroupFound(group) => {
                     self.wasted_bytes += group.size * (group.paths.len() as u64 - 1);
+                    let gi = self.groups.len();
+                    self.flat_rows.push(RowRef::Header(gi));
+                    for pi in 0..group.paths.len() {
+                        self.flat_rows.push(RowRef::Path(gi, pi));
+                    }
                     self.groups.push(group);
                 }
                 DupEvent::Finished { groups, wasted_bytes } => {
@@ -130,6 +161,7 @@ impl DupTab {
             min_size: (self.min_size_mb.max(0.0) * 1024.0 * 1024.0) as u64,
         };
         self.groups.clear();
+        self.flat_rows.clear();
         self.selected.clear();
         self.wasted_bytes = 0;
         self.files_found = 0;
@@ -272,37 +304,56 @@ impl DupTab {
             human_bytes(self.wasted_bytes)
         ));
 
-        egui::ScrollArea::vertical().id_salt("dup_groups_scroll").show(ui, |ui| {
-            for (gi, group) in self.groups.iter().enumerate() {
-                ui.group(|ui| {
-                    ui.label(format!(
-                        "Group {} — {} × {} ({} wasted)",
-                        gi + 1,
-                        group.paths.len(),
-                        human_bytes(group.size),
-                        human_bytes(group.size * (group.paths.len() as u64 - 1))
-                    ));
-                    for p in &group.paths {
-                        let mut checked = self.selected.contains(p);
-                        ui.horizontal(|ui| {
-                            if ui.checkbox(&mut checked, "").changed() {
-                                if checked {
-                                    self.selected.insert(p.clone());
-                                } else {
-                                    self.selected.remove(p);
+        // With whole-disk scans routinely finding hundreds of thousands of
+        // duplicate groups, laying out every group and path as live widgets
+        // every frame (the old nested ui.group()-per-group loop) freezes the
+        // UI outright. flat_rows lets show_rows only build widgets for rows
+        // actually in the viewport, at the cost of a plainer look than a
+        // bordered box per group (a header line, then its paths indented).
+        let row_height = ui.spacing().interact_size.y;
+        egui::ScrollArea::vertical().id_salt("dup_groups_scroll").show_rows(
+            ui,
+            row_height,
+            self.flat_rows.len(),
+            |ui, row_range| {
+                for row in &self.flat_rows[row_range] {
+                    match *row {
+                        RowRef::Header(gi) => {
+                            let group = &self.groups[gi];
+                            ui.horizontal(|ui| {
+                                ui.strong(format!(
+                                    "Group {} — {} × {} ({} wasted)",
+                                    gi + 1,
+                                    group.paths.len(),
+                                    human_bytes(group.size),
+                                    human_bytes(group.size * (group.paths.len() as u64 - 1))
+                                ));
+                            });
+                        }
+                        RowRef::Path(gi, pi) => {
+                            let p = &self.groups[gi].paths[pi];
+                            let mut checked = self.selected.contains(p);
+                            ui.horizontal(|ui| {
+                                ui.add_space(16.0);
+                                if ui.checkbox(&mut checked, "").changed() {
+                                    if checked {
+                                        self.selected.insert(p.clone());
+                                    } else {
+                                        self.selected.remove(p);
+                                    }
                                 }
-                            }
-                            if ui.small_button("📂").on_hover_text("Show in Finder/Explorer").clicked() {
-                                if let Err(e) = crate::reveal::reveal(p) {
-                                    self.log.push(format!("Couldn't open folder: {e}"));
+                                if ui.small_button("📂").on_hover_text("Show in Finder/Explorer").clicked() {
+                                    if let Err(e) = crate::reveal::reveal(p) {
+                                        self.log.push(format!("Couldn't open folder: {e}"));
+                                    }
                                 }
-                            }
-                            ui.label(p.display().to_string());
-                        });
+                                ui.label(p.display().to_string());
+                            });
+                        }
                     }
-                });
-            }
-        });
+                }
+            },
+        );
 
         ui.separator();
         ui.label("Log:");
@@ -315,5 +366,65 @@ impl DupTab {
                     ui.label(line);
                 }
             });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression test for a real freeze: with whole-disk scans routinely
+    /// finding hundreds of thousands of duplicate groups, the previous
+    /// implementation laid out every group and path as a live widget on
+    /// every frame, which made the UI unusable. This builds a tab with a
+    /// large synthetic result set (bypassing an actual scan) and renders it
+    /// through a real, headless egui context repeatedly, asserting average
+    /// frame time stays well under what a human would perceive as
+    /// stuttering — this would fail by orders of magnitude without the
+    /// show_rows-based virtualization.
+    #[test]
+    fn rendering_a_huge_result_set_stays_fast() {
+        let mut tab = DupTab::default();
+        for gi in 0..50_000usize {
+            let group = DuplicateGroup {
+                hash: format!("hash{gi}"),
+                size: 1024,
+                paths: vec![
+                    PathBuf::from(format!("/fake/group{gi}/a.txt")),
+                    PathBuf::from(format!("/fake/group{gi}/b.txt")),
+                ],
+            };
+            tab.wasted_bytes += group.size;
+            let group_idx = tab.groups.len();
+            tab.flat_rows.push(RowRef::Header(group_idx));
+            for pi in 0..group.paths.len() {
+                tab.flat_rows.push(RowRef::Path(group_idx, pi));
+            }
+            tab.groups.push(group);
+        }
+        assert_eq!(tab.flat_rows.len(), 50_000 * 3);
+
+        let ctx = egui::Context::default();
+        let warmup = 3;
+        let measured = 20;
+        let mut total = std::time::Duration::ZERO;
+        for i in 0..warmup + measured {
+            let start = Instant::now();
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    tab.ui(ui);
+                });
+            });
+            output.textures_delta.clear();
+            if i >= warmup {
+                total += start.elapsed();
+            }
+        }
+        let avg_frame = total / measured;
+        assert!(
+            avg_frame < std::time::Duration::from_millis(20),
+            "average frame time with 50k duplicate groups was {avg_frame:?} — \
+             expected well under 20ms; result-list virtualization may be broken"
+        );
     }
 }

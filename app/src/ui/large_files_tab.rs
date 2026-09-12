@@ -26,6 +26,12 @@ pub struct LargeFilesTab {
     started_at: Option<Instant>,
     files_scanned: usize,
     results: Vec<FileEntry>,
+    /// Indices into `results`, filtered by `search` and sorted by `sort_by`.
+    /// Cached instead of recomputed (and cloned) every frame — with
+    /// whole-disk scans routinely returning hundreds of thousands of
+    /// entries, redoing that on every repaint made the UI unusable.
+    filtered_indices: Vec<usize>,
+    filtered_cache_key: Option<(String, SortBy, usize)>,
     selected: HashSet<PathBuf>,
     total_bytes: u64,
     /// Paths currently being sent to the trash on a background thread (see
@@ -47,6 +53,8 @@ impl Default for LargeFilesTab {
             started_at: None,
             files_scanned: 0,
             results: Vec::new(),
+            filtered_indices: Vec::new(),
+            filtered_cache_key: None,
             selected: HashSet::new(),
             total_bytes: 0,
             deleting: None,
@@ -143,21 +151,31 @@ impl LargeFilesTab {
         self.start();
     }
 
-    /// Applies the live search filter and chosen sort over the already
-    /// scanned results — instant, since it never touches the filesystem.
-    fn filtered_sorted(&self) -> Vec<FileEntry> {
+    /// Rebuilds `filtered_indices` from `results` if the search text, sort
+    /// mode, or result count has changed since the last call — otherwise
+    /// does nothing, since re-filtering and re-sorting is pointless work on
+    /// every one of the tens of frames per second the tab redraws.
+    fn refresh_filtered(&mut self) {
+        let key = (self.search.clone(), self.sort_by, self.results.len());
+        if self.filtered_cache_key.as_ref() == Some(&key) {
+            return;
+        }
         let needle = self.search.trim().to_lowercase();
-        let mut list: Vec<FileEntry> = self
+        let mut indices: Vec<usize> = self
             .results
             .iter()
-            .filter(|f| needle.is_empty() || f.path.to_string_lossy().to_lowercase().contains(&needle))
-            .cloned()
+            .enumerate()
+            .filter(|(_, f)| needle.is_empty() || f.path.to_string_lossy().to_lowercase().contains(&needle))
+            .map(|(i, _)| i)
             .collect();
         match self.sort_by {
-            SortBy::SizeDesc => list.sort_by_key(|f| std::cmp::Reverse(f.size)),
-            SortBy::NameAsc => list.sort_by(|a, b| a.path.file_name().cmp(&b.path.file_name())),
+            SortBy::SizeDesc => indices.sort_by_key(|&i| std::cmp::Reverse(self.results[i].size)),
+            SortBy::NameAsc => {
+                indices.sort_by(|&a, &b| self.results[a].path.file_name().cmp(&self.results[b].path.file_name()))
+            }
         }
-        list
+        self.filtered_indices = indices;
+        self.filtered_cache_key = Some(key);
     }
 
     fn delete_selected(&mut self) {
@@ -271,18 +289,18 @@ impl LargeFilesTab {
                 });
         });
 
-        let filtered = self.filtered_sorted();
+        self.refresh_filtered();
 
         ui.horizontal(|ui| {
             ui.label(format!(
                 "{} of {} file(s) — {} total",
-                filtered.len(),
+                self.filtered_indices.len(),
                 self.results.len(),
                 human_bytes(self.total_bytes)
             ));
             if ui.button("Select all shown").clicked() {
-                for f in &filtered {
-                    self.selected.insert(f.path.clone());
+                for &idx in &self.filtered_indices {
+                    self.selected.insert(self.results[idx].path.clone());
                 }
             }
             if ui.button("Clear selection").clicked() {
@@ -302,27 +320,38 @@ impl LargeFilesTab {
             }
         });
 
-        egui::ScrollArea::vertical().id_salt("bigfiles_results_scroll").show(ui, |ui| {
-            for entry in &filtered {
-                let mut checked = self.selected.contains(&entry.path);
-                ui.horizontal(|ui| {
-                    if ui.checkbox(&mut checked, "").changed() {
-                        if checked {
-                            self.selected.insert(entry.path.clone());
-                        } else {
-                            self.selected.remove(&entry.path);
+        // With whole-disk scans routinely returning hundreds of thousands
+        // of files, laying out every row as a live widget every frame
+        // freezes the UI. show_rows only builds widgets for rows actually
+        // in the viewport.
+        let row_height = ui.spacing().interact_size.y;
+        egui::ScrollArea::vertical().id_salt("bigfiles_results_scroll").show_rows(
+            ui,
+            row_height,
+            self.filtered_indices.len(),
+            |ui, row_range| {
+                for &idx in &self.filtered_indices[row_range] {
+                    let entry = &self.results[idx];
+                    let mut checked = self.selected.contains(&entry.path);
+                    ui.horizontal(|ui| {
+                        if ui.checkbox(&mut checked, "").changed() {
+                            if checked {
+                                self.selected.insert(entry.path.clone());
+                            } else {
+                                self.selected.remove(&entry.path);
+                            }
                         }
-                    }
-                    if ui.small_button("📂").on_hover_text("Show in Finder/Explorer").clicked() {
-                        if let Err(e) = crate::reveal::reveal(&entry.path) {
-                            self.log.push(format!("Couldn't open folder: {e}"));
+                        if ui.small_button("📂").on_hover_text("Show in Finder/Explorer").clicked() {
+                            if let Err(e) = crate::reveal::reveal(&entry.path) {
+                                self.log.push(format!("Couldn't open folder: {e}"));
+                            }
                         }
-                    }
-                    ui.monospace(human_bytes(entry.size));
-                    ui.label(entry.path.display().to_string());
-                });
-            }
-        });
+                        ui.monospace(human_bytes(entry.size));
+                        ui.label(entry.path.display().to_string());
+                    });
+                }
+            },
+        );
 
         ui.separator();
         ui.label("Log:");
