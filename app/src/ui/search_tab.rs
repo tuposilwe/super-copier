@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use eframe::egui;
+use engine::copy::{CopyEvent, CopyOptions};
 use engine::search::{SearchEvent, SearchMatch, SearchOptions};
 
 use crate::dialog::DeferredPicker;
@@ -26,7 +27,14 @@ pub struct SearchTab {
     /// `worker::spawn_delete_to_trash`), with the channel reporting back
     /// whether it worked.
     deleting: Option<worker::DeleteJob>,
+    /// The originally requested source paths plus the job moving them —
+    /// kept so that on completion we can check which ones no longer exist
+    /// at their old location (the simplest correct way to tell success
+    /// from failure for both files and whole directory trees) and drop
+    /// only those from the result list.
+    moving: Option<(Vec<PathBuf>, Job<CopyEvent>)>,
     picker: DeferredPicker,
+    move_dest_picker: DeferredPicker,
     log: Log,
 }
 
@@ -59,6 +67,40 @@ impl SearchTab {
                     Err(e) => self.log.push(format!("Delete failed: {e}")),
                 }
                 self.deleting = None;
+            }
+        }
+
+        if let Some((paths, job)) = &self.moving {
+            let mut move_finished = false;
+            for event in job.rx.try_iter() {
+                match event {
+                    CopyEvent::Finished(summary) => {
+                        self.log.push(format!(
+                            "Moved {} file(s), {} failed.",
+                            summary.files_copied, summary.files_failed
+                        ));
+                        move_finished = true;
+                    }
+                    CopyEvent::Cancelled => {
+                        self.log.push("Move cancelled.".to_string());
+                        move_finished = true;
+                    }
+                    CopyEvent::FileError { path, message } => {
+                        self.log.push(format!("✗ {} — {message}", path.display()));
+                    }
+                    _ => {}
+                }
+            }
+            if move_finished {
+                // A file/dir no longer existing at its old location is the
+                // simplest correct signal that it was actually moved —
+                // works the same way whether it was a single file or a
+                // whole directory tree, and naturally leaves anything that
+                // failed still showing in the results.
+                let moved: HashSet<PathBuf> = paths.iter().filter(|p| !p.exists()).cloned().collect();
+                self.results.retain(|m| !moved.contains(&m.path));
+                self.selected.retain(|p| !moved.contains(p));
+                self.moving = None;
             }
         }
 
@@ -124,12 +166,27 @@ impl SearchTab {
         self.deleting = Some((paths, rx));
     }
 
+    fn move_selected(&mut self, dest: PathBuf) {
+        if self.selected.is_empty() || self.moving.is_some() {
+            return;
+        }
+        let paths: Vec<PathBuf> = self.selected.iter().cloned().collect();
+        self.log.push(format!("Moving {} item(s) to {}…", paths.len(), dest.display()));
+        let job = worker::spawn_move(paths.clone(), dest, CopyOptions::default());
+        self.moving = Some((paths, job));
+    }
+
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         self.poll();
         if let Some(paths) = self.picker.poll() {
             self.roots.extend(paths);
         }
-        if self.deleting.is_some() {
+        if let Some(mut paths) = self.move_dest_picker.poll() {
+            if let Some(dest) = paths.pop() {
+                self.move_selected(dest);
+            }
+        }
+        if self.deleting.is_some() || self.moving.is_some() {
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
         }
         let running = self.is_running();
@@ -239,8 +296,20 @@ impl SearchTab {
             {
                 self.delete_selected();
             }
+            if ui
+                .add_enabled(
+                    !self.selected.is_empty() && self.moving.is_none(),
+                    egui::Button::new("📦 Move selected to folder…"),
+                )
+                .clicked()
+            {
+                self.move_dest_picker.request_folder();
+            }
             if self.deleting.is_some() {
                 ui.weak("Deleting…");
+            }
+            if self.moving.is_some() {
+                ui.weak("Moving…");
             }
         });
 
