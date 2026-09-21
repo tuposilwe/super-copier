@@ -1,4 +1,5 @@
 pub mod big_folders;
+pub mod bootable;
 pub mod copy;
 pub mod diskusage;
 pub mod drives;

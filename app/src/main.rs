@@ -27,6 +27,15 @@ fn app_icon() -> egui::IconData {
 }
 
 fn main() -> eframe::Result {
+    // The bootable-USB feature re-launches this binary with administrator
+    // rights to do the actual disk writes (see engine::bootable::helper);
+    // that copy must never open a window or join the single-instance IPC.
+    let mut args = std::env::args_os().skip(1);
+    if args.next().is_some_and(|a| a == engine::bootable::helper::HELPER_FLAG) {
+        let Some(job) = args.next() else { std::process::exit(3) };
+        std::process::exit(engine::bootable::helper::run_helper(std::path::Path::new(&job)));
+    }
+
     // `--move` plus a list of files/folders is how the Explorer "Copy with
     // Super Copier" / "Move with Super Copier" context menu entries invoke
     // us (see packaging/windows/installer.nsi).
@@ -77,6 +86,7 @@ enum Tab {
     Duplicates,
     Big,
     DiskUsage,
+    Boot,
     Organize,
     Sync,
     Share,
@@ -91,6 +101,7 @@ struct SuperCopierApp {
     dup_tab: ui::dup_tab::DupTab,
     big_tab: ui::big_tab::BigTab,
     disk_usage_tab: ui::disk_usage_tab::DiskUsageTab,
+    boot_tab: ui::boot_tab::BootTab,
     organize_tab: ui::organize_tab::OrganizeTab,
     sync_tab: ui::sync_tab::SyncTab,
     share_tab: ui::share_tab::ShareTab,
@@ -107,6 +118,7 @@ impl SuperCopierApp {
             dup_tab: ui::dup_tab::DupTab::default(),
             big_tab: ui::big_tab::BigTab::default(),
             disk_usage_tab: ui::disk_usage_tab::DiskUsageTab::default(),
+            boot_tab: ui::boot_tab::BootTab::default(),
             organize_tab: ui::organize_tab::OrganizeTab::default(),
             sync_tab: ui::sync_tab::SyncTab::default(),
             share_tab: ui::share_tab::ShareTab::default(),
@@ -124,6 +136,7 @@ impl eframe::App for SuperCopierApp {
             || self.search_tab.is_running()
             || self.dup_tab.is_running()
             || self.big_tab.is_running()
+            || self.boot_tab.is_running()
             || self.organize_tab.is_running()
             || self.sync_tab.is_running()
             || self.share_tab.is_running();
@@ -157,20 +170,7 @@ impl eframe::App for SuperCopierApp {
 
         egui::Panel::top("tabs").show(ui, |ui| {
             ui.add_space(4.0);
-            ui.horizontal(|ui| {
-                ui.selectable_value(&mut self.tab, Tab::Copy, "📁 Copy / Move / Rename");
-                ui.selectable_value(&mut self.tab, Tab::Search, "🔎 Search");
-                ui.selectable_value(&mut self.tab, Tab::Duplicates, "🔍 Duplicates");
-                ui.selectable_value(&mut self.tab, Tab::Big, "🐘 Big Files & Folders");
-                ui.selectable_value(&mut self.tab, Tab::DiskUsage, "💽 Disk Usage");
-                ui.selectable_value(&mut self.tab, Tab::Organize, "🗂 Organize");
-                ui.selectable_value(&mut self.tab, Tab::Sync, "🔄 Sync");
-                ui.selectable_value(&mut self.tab, Tab::Share, "📡 Share");
-
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    self.theme.radio_buttons(ui);
-                });
-            });
+            tab_bar(ui, &mut self.tab, &mut self.theme);
             ui.add_space(4.0);
         });
 
@@ -189,6 +189,7 @@ impl eframe::App for SuperCopierApp {
                 self.big_tab.ui(ui);
             }
             Tab::DiskUsage => self.disk_usage_tab.ui(ui),
+            Tab::Boot => self.boot_tab.ui(ui, dropped),
             Tab::Organize => {
                 self.organize_tab.add_dropped(dropped);
                 self.organize_tab.ui(ui);
@@ -196,5 +197,109 @@ impl eframe::App for SuperCopierApp {
             Tab::Sync => self.sync_tab.ui(ui, dropped),
             Tab::Share => self.share_tab.ui(ui, dropped),
         });
+    }
+}
+
+/// The tab strip plus the light/dark toggle. It wraps onto extra lines when
+/// the window is narrow — a single non-wrapping row pushed the theme control
+/// off the edge of the default-sized window once there were enough tabs.
+/// Returns the toggle button's rectangle (used by tests).
+fn tab_bar(ui: &mut egui::Ui, tab: &mut Tab, theme: &mut egui::ThemePreference) -> egui::Rect {
+    let mut toggle_rect = egui::Rect::NOTHING;
+    ui.horizontal_wrapped(|ui| {
+        for (t, label) in [
+            (Tab::Copy, "📁 Copy / Move / Rename"),
+            (Tab::Search, "🔎 Search"),
+            (Tab::Duplicates, "🔍 Duplicates"),
+            (Tab::Big, "🐘 Big Files & Folders"),
+            (Tab::DiskUsage, "💽 Disk Usage"),
+            (Tab::Boot, "💿 Bootable USB"),
+            (Tab::Organize, "🗂 Organize"),
+            (Tab::Sync, "🔄 Sync"),
+            (Tab::Share, "📡 Share"),
+        ] {
+            ui.selectable_value(tab, t, label);
+        }
+        ui.separator();
+        // Shows the mode you'd switch *to*, so it reads as an action.
+        let dark = ui.visuals().dark_mode;
+        let label = if dark { "☀ Light mode" } else { "🌙 Dark mode" };
+        let response = ui.button(label).on_hover_text("Switch between light and dark mode");
+        toggle_rect = response.rect;
+        if response.clicked() {
+            *theme = toggled_theme(dark);
+        }
+    });
+    toggle_rect
+}
+
+/// The theme a click on the toggle should switch to, given whether the UI is
+/// currently dark. Always an explicit Light/Dark (never System), so one click
+/// always visibly changes something.
+fn toggled_theme(currently_dark: bool) -> egui::ThemePreference {
+    if currently_dark {
+        egui::ThemePreference::Light
+    } else {
+        egui::ThemePreference::Dark
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn frame(ctx: &egui::Context, width: f32, events: Vec<egui::Event>, tab: &mut Tab, theme: &mut egui::ThemePreference) -> egui::Rect {
+        let raw = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 700.0))),
+            events,
+            ..Default::default()
+        };
+        let mut rect = egui::Rect::NOTHING;
+        let mut out = ctx.run_ui(raw, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                rect = tab_bar(ui, tab, theme);
+            });
+        });
+        out.textures_delta.clear();
+        rect
+    }
+
+    #[test]
+    fn the_toggle_stays_on_screen_at_every_window_width() {
+        for width in [680.0, 800.0, 980.0, 1200.0, 1600.0] {
+            let ctx = egui::Context::default();
+            let (mut tab, mut theme) = (Tab::Copy, egui::ThemePreference::Dark);
+            frame(&ctx, width, vec![], &mut tab, &mut theme);
+            let rect = frame(&ctx, width, vec![], &mut tab, &mut theme);
+            assert!(rect.is_positive(), "toggle wasn't laid out at width {width}");
+            assert!(
+                rect.left() >= 0.0 && rect.right() <= width,
+                "at width {width} the toggle spans x={:.0}..{:.0}, off the window",
+                rect.left(),
+                rect.right()
+            );
+        }
+    }
+
+    #[test]
+    fn clicking_the_toggle_flips_between_light_and_dark() {
+        assert_eq!(toggled_theme(true), egui::ThemePreference::Light);
+        assert_eq!(toggled_theme(false), egui::ThemePreference::Dark);
+
+        let ctx = egui::Context::default();
+        let (mut tab, mut theme) = (Tab::Copy, egui::ThemePreference::Dark);
+        frame(&ctx, 1200.0, vec![], &mut tab, &mut theme);
+        let rect = frame(&ctx, 1200.0, vec![], &mut tab, &mut theme);
+        let click_at = rect.center();
+        let button = |pressed| egui::Event::PointerButton {
+            pos: click_at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        frame(&ctx, 1200.0, vec![egui::Event::PointerMoved(click_at)], &mut tab, &mut theme);
+        frame(&ctx, 1200.0, vec![button(true)], &mut tab, &mut theme);
+        frame(&ctx, 1200.0, vec![button(false)], &mut tab, &mut theme);
+        assert_eq!(theme, egui::ThemePreference::Light, "a click while dark should switch to light");
     }
 }

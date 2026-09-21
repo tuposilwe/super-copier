@@ -41,6 +41,19 @@ file-management tool written in Rust, with a native GUI.
   no account, no size limit beyond disk space. The receiving side always
   has to explicitly accept an incoming transfer (sender name + file list
   + total size shown first) before anything is written to disk.
+- **Bootable USB** — turn an ISO/IMG into a bootable drive. Two modes,
+  picked automatically from the image: *hybrid* images (most Linux ISOs,
+  rescue disks — anything with its own boot sector) are written
+  byte-for-byte and then read back and compared; *Windows-style* disc-only
+  ISOs are copied as files onto a fresh FAT32 drive, with `install.wim`
+  split into `.swm` pieces when it's over FAT32's 4 GB file limit (needs
+  `dism` on Windows, or `wimlib-imagex` — `brew install wimlib` — on macOS
+  and Linux). Safety: only removable USB/SD drives are ever offered
+  (internal disks and the disk the OS runs from are never listed), you
+  must type the drive's name to confirm, and the elevated helper that does
+  the write re-checks the target itself rather than trusting the GUI. It
+  asks for administrator permission (macOS password prompt, Windows UAC,
+  Linux `pkexec`) only for the helper, not the whole app.
 
 ## Project layout
 

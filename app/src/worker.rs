@@ -6,7 +6,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use crossbeam_channel::Receiver;
-use engine::{big_folders, copy, duplicates, fsops, large_files, search, share, sync, CancelToken};
+use engine::{big_folders, bootable, copy, duplicates, fsops, large_files, search, share, sync, CancelToken};
 
 pub struct Job<E> {
     pub cancel: CancelToken,
@@ -85,6 +85,29 @@ pub fn spawn_big_folders(
         let _ = big_folders::find_big_folders(&roots, options, cancel2, tx);
     });
     Job { cancel, rx }
+}
+
+/// Looks for USB drives off the UI thread — asking the OS can take a couple
+/// of seconds (PowerShell alone takes a while to start on Windows).
+pub fn spawn_device_scan() -> Receiver<Result<Vec<bootable::Device>, String>> {
+    let (tx, rx) = crossbeam_channel::bounded(1);
+    std::thread::spawn(move || {
+        let _ = tx.send(bootable::devices::list_safe_targets().map_err(|e| e.to_string()));
+    });
+    rx
+}
+
+/// Starts a bootable-USB write through the elevated helper. The returned job
+/// streams [`bootable::Event`]s; cancelling it stops the write.
+pub fn spawn_flash(
+    image: PathBuf,
+    device_id: String,
+    mode: bootable::Mode,
+    verify: bool,
+) -> Result<Job<bootable::Event>, String> {
+    let (cancel, rx) =
+        bootable::helper::spawn_flash(image, device_id, mode, verify, true).map_err(|e| e.to_string())?;
+    Ok(Job { cancel, rx })
 }
 
 pub fn spawn_search(roots: Vec<PathBuf>, options: search::SearchOptions) -> Job<search::SearchEvent> {
