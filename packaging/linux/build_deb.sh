@@ -10,7 +10,7 @@ set -eu
 
 cd "$(dirname "$0")/../.."
 
-VERSION=0.1.0
+VERSION=0.2.0
 ARCH=amd64
 PKG="super-copier_${VERSION}_${ARCH}"
 STAGE="packaging/linux/${PKG}"

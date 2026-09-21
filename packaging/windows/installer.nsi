@@ -1,12 +1,12 @@
 ; Super Copier Windows installer.
 ;
 ; Build with:
-;   makensis -DVERSION=0.1.0 -DEXE_PATH=..\..\target\x86_64-pc-windows-gnu\release\super-copier.exe packaging\windows\installer.nsi
+;   makensis -DVERSION=0.2.0 -DEXE_PATH=..\..\target\x86_64-pc-windows-gnu\release\super-copier.exe packaging\windows\installer.nsi
 ;
 ; Produces SuperCopierSetup.exe in the working directory.
 
 !ifndef VERSION
-  !define VERSION "0.1.0"
+  !define VERSION "0.2.0"
 !endif
 !ifndef EXE_PATH
   !define EXE_PATH "..\..\target\x86_64-pc-windows-gnu\release\super-copier.exe"

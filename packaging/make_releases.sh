@@ -19,7 +19,7 @@ sh packaging/linux/build_deb.sh
 
 rustup target add x86_64-pc-windows-gnu >/dev/null 2>&1 || true
 cargo build --release --target x86_64-pc-windows-gnu -p super-copier
-makensis -DVERSION=0.1.0 -DEXE_PATH=../../target/x86_64-pc-windows-gnu/release/super-copier.exe packaging/windows/installer.nsi
+makensis -DVERSION=0.2.0 -DEXE_PATH=../../target/x86_64-pc-windows-gnu/release/super-copier.exe packaging/windows/installer.nsi
 
 rm -rf Releases
 mkdir -p Releases/Windows Releases/macOS Releases/Linux
@@ -28,6 +28,6 @@ cp packaging/windows/SuperCopierSetup.exe Releases/Windows/SuperCopier-Setup.exe
 cp packaging/macos/SuperCopier-macOS-Intel.dmg Releases/macOS/
 cp packaging/macos/SuperCopier-macOS-AppleSilicon.dmg Releases/macOS/
 cp packaging/linux/super-copier-linux-x86_64.tar.gz Releases/Linux/SuperCopier-Linux.tar.gz
-cp packaging/linux/super-copier_0.1.0_amd64.deb Releases/Linux/SuperCopier-Linux.deb
+cp packaging/linux/super-copier_0.2.0_amd64.deb Releases/Linux/SuperCopier-Linux.deb
 
 echo "Staged release files under Releases/"
