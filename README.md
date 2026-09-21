@@ -41,6 +41,13 @@ file-management tool written in Rust, with a native GUI.
   no account, no size limit beyond disk space. The receiving side always
   has to explicitly accept an incoming transfer (sender name + file list
   + total size shown first) before anything is written to disk.
+- **Zip / Unzip** — compress files and folders into a `.zip`, or extract
+  one, with progress and cancel. Archives are built under a temporary name
+  and only moved into place when complete, so a cancelled run never leaves
+  a broken zip. Extraction treats archives as untrusted: `../` paths can't
+  escape the destination folder, symlinks are written as plain files, and
+  setuid bits are dropped. Handles files over 4 GB (zip64). Zip only — no
+  `.tar.gz`/`.7z`/`.rar`, and no password-protected archives.
 - **Bootable USB** — turn an ISO/IMG into a bootable drive. Two modes,
   picked automatically from the image: *hybrid* images (most Linux ISOs,
   rescue disks — anything with its own boot sector) are written
@@ -227,9 +234,9 @@ cat > "$APP/Contents/Info.plist" <<'EOF'
 	<key>CFBundleIdentifier</key>
 	<string>dev.tuposilwe.supercopier</string>
 	<key>CFBundleVersion</key>
-	<string>0.2.0</string>
+	<string>0.3.0</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.2.0</string>
+	<string>0.3.0</string>
 	<key>CFBundleExecutable</key>
 	<string>super-copier</string>
 	<key>CFBundleIconFile</key>
@@ -299,7 +306,7 @@ compiler that happens to also run on macOS/Linux):
 ```sh
 cargo build --release -p super-copier --target x86_64-pc-windows-gnu
 cd packaging/windows
-makensis -DVERSION=0.2.0 installer.nsi
+makensis -DVERSION=0.3.0 installer.nsi
 # -> packaging/windows/SuperCopierSetup.exe
 ```
 
@@ -313,7 +320,7 @@ here). If you build the underlying `.exe` on Windows instead of
 cross-compiling, just point `EXE_PATH` at it:
 
 ```sh
-makensis -DVERSION=0.2.0 -DEXE_PATH=..\..\target\release\super-copier.exe installer.nsi
+makensis -DVERSION=0.3.0 -DEXE_PATH=..\..\target\release\super-copier.exe installer.nsi
 ```
 
 #### How the Explorer context menu avoids opening a window per file
@@ -366,7 +373,7 @@ top of `installer.wxs` for exactly what was and wasn't confirmed.
 cargo build --release
 dotnet tool install --global wix --version 5.0.2   # v5, not v7 — v7 needs a paid EULA
 cd packaging\windows-msi
-wix build installer.wxs -arch x64 -d Version=0.2.0 -d ExePath=..\..\target\release\super-copier.exe -d IconPath=..\..\app\assets\icon.ico -o SuperCopier.msi
+wix build installer.wxs -arch x64 -d Version=0.3.0 -d ExePath=..\..\target\release\super-copier.exe -d IconPath=..\..\app\assets\icon.ico -o SuperCopier.msi
 ```
 
 [WiX v5]: https://wixtoolset.org/
@@ -378,7 +385,7 @@ covers the two common cases:
 
 ```sh
 ./packaging/linux/build_deb.sh
-# -> packaging/linux/super-copier_0.2.0_amd64.deb
+# -> packaging/linux/super-copier_0.3.0_amd64.deb
 
 ./packaging/linux/build_tarball.sh
 # -> packaging/linux/super-copier-linux-x86_64.tar.gz
@@ -388,7 +395,7 @@ Both cross-compile from macOS via `cargo-zigbuild` automatically (or
 build natively if run on Linux), then package the binary with
 `super-copier.desktop` and an icon. The `.deb` installs to `/usr/bin`,
 `/usr/share/applications`, and `/usr/share/pixmaps` via
-`dpkg -i super-copier_0.2.0_amd64.deb`; the tarball just needs
+`dpkg -i super-copier_0.3.0_amd64.deb`; the tarball just needs
 extracting and running — no package manager involved. `dpkg-deb` (the
 *builder*, not an installer) runs fine on macOS via `brew install dpkg`,
 so building the `.deb` doesn't need Linux either. Verified: both scripts

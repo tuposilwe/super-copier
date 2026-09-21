@@ -1,6 +1,6 @@
 [package]
 name = "super-copier"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 default-run = "super-copier"
 
@@ -13,7 +13,7 @@ anyhow = "1.0.104"
 crossbeam-channel = "0.5.17"
 eframe = { version = "0.36.2", default-features = false, features = ["default_fonts", "links", "wgpu", "x11", "wayland"] }
 egui = "0.36.2"
-engine = { version = "0.2.0", path = "../engine" }
+engine = { version = "0.3.0", path = "../engine" }
 gethostname = "1.1.0"
 notify-rust = { version = "4.18.0", features = ["preview-macos-un"] }
 rfd = "0.17.2"
