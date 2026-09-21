@@ -69,6 +69,14 @@ impl LargeFilesTab {
         self.job.is_some()
     }
 
+    pub fn roots(&self) -> &[PathBuf] {
+        &self.roots
+    }
+
+    pub fn set_roots(&mut self, roots: Vec<PathBuf>) {
+        self.roots = roots;
+    }
+
     pub fn add_dropped(&mut self, paths: Vec<PathBuf>) {
         for p in paths {
             if let Some(dir) = dnd::as_dir(&p) {

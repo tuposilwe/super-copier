@@ -75,8 +75,7 @@ enum Tab {
     Copy,
     Search,
     Duplicates,
-    BigFiles,
-    BigFolders,
+    Big,
     DiskUsage,
     Organize,
     Sync,
@@ -90,8 +89,7 @@ struct SuperCopierApp {
     copy_tab: ui::copy_tab::CopyTab,
     search_tab: ui::search_tab::SearchTab,
     dup_tab: ui::dup_tab::DupTab,
-    large_files_tab: ui::large_files_tab::LargeFilesTab,
-    big_folders_tab: ui::big_folders_tab::BigFoldersTab,
+    big_tab: ui::big_tab::BigTab,
     disk_usage_tab: ui::disk_usage_tab::DiskUsageTab,
     organize_tab: ui::organize_tab::OrganizeTab,
     sync_tab: ui::sync_tab::SyncTab,
@@ -107,8 +105,7 @@ impl SuperCopierApp {
             copy_tab: ui::copy_tab::CopyTab::default(),
             search_tab: ui::search_tab::SearchTab::default(),
             dup_tab: ui::dup_tab::DupTab::default(),
-            large_files_tab: ui::large_files_tab::LargeFilesTab::default(),
-            big_folders_tab: ui::big_folders_tab::BigFoldersTab::default(),
+            big_tab: ui::big_tab::BigTab::default(),
             disk_usage_tab: ui::disk_usage_tab::DiskUsageTab::default(),
             organize_tab: ui::organize_tab::OrganizeTab::default(),
             sync_tab: ui::sync_tab::SyncTab::default(),
@@ -126,8 +123,7 @@ impl eframe::App for SuperCopierApp {
         let any_running = self.copy_tab.is_running()
             || self.search_tab.is_running()
             || self.dup_tab.is_running()
-            || self.large_files_tab.is_running()
-            || self.big_folders_tab.is_running()
+            || self.big_tab.is_running()
             || self.organize_tab.is_running()
             || self.sync_tab.is_running()
             || self.share_tab.is_running();
@@ -165,8 +161,7 @@ impl eframe::App for SuperCopierApp {
                 ui.selectable_value(&mut self.tab, Tab::Copy, "📁 Copy / Move / Rename");
                 ui.selectable_value(&mut self.tab, Tab::Search, "🔎 Search");
                 ui.selectable_value(&mut self.tab, Tab::Duplicates, "🔍 Duplicates");
-                ui.selectable_value(&mut self.tab, Tab::BigFiles, "🐘 Big Files");
-                ui.selectable_value(&mut self.tab, Tab::BigFolders, "🗄 Big Folders");
+                ui.selectable_value(&mut self.tab, Tab::Big, "🐘 Big Files & Folders");
                 ui.selectable_value(&mut self.tab, Tab::DiskUsage, "💽 Disk Usage");
                 ui.selectable_value(&mut self.tab, Tab::Organize, "🗂 Organize");
                 ui.selectable_value(&mut self.tab, Tab::Sync, "🔄 Sync");
@@ -189,13 +184,9 @@ impl eframe::App for SuperCopierApp {
                 self.dup_tab.add_dropped(dropped);
                 self.dup_tab.ui(ui);
             }
-            Tab::BigFiles => {
-                self.large_files_tab.add_dropped(dropped);
-                self.large_files_tab.ui(ui);
-            }
-            Tab::BigFolders => {
-                self.big_folders_tab.add_dropped(dropped);
-                self.big_folders_tab.ui(ui);
+            Tab::Big => {
+                self.big_tab.add_dropped(dropped);
+                self.big_tab.ui(ui);
             }
             Tab::DiskUsage => self.disk_usage_tab.ui(ui),
             Tab::Organize => {
