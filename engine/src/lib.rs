@@ -1,3 +1,4 @@
+pub mod archive;
 pub mod big_folders;
 pub mod bootable;
 pub mod copy;

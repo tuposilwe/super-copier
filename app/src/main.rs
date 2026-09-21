@@ -87,6 +87,7 @@ enum Tab {
     Big,
     DiskUsage,
     Boot,
+    Archive,
     Organize,
     Sync,
     Share,
@@ -102,6 +103,7 @@ struct SuperCopierApp {
     big_tab: ui::big_tab::BigTab,
     disk_usage_tab: ui::disk_usage_tab::DiskUsageTab,
     boot_tab: ui::boot_tab::BootTab,
+    archive_tab: ui::archive_tab::ArchiveTab,
     organize_tab: ui::organize_tab::OrganizeTab,
     sync_tab: ui::sync_tab::SyncTab,
     share_tab: ui::share_tab::ShareTab,
@@ -119,6 +121,7 @@ impl SuperCopierApp {
             big_tab: ui::big_tab::BigTab::default(),
             disk_usage_tab: ui::disk_usage_tab::DiskUsageTab::default(),
             boot_tab: ui::boot_tab::BootTab::default(),
+            archive_tab: ui::archive_tab::ArchiveTab::default(),
             organize_tab: ui::organize_tab::OrganizeTab::default(),
             sync_tab: ui::sync_tab::SyncTab::default(),
             share_tab: ui::share_tab::ShareTab::default(),
@@ -137,6 +140,7 @@ impl eframe::App for SuperCopierApp {
             || self.dup_tab.is_running()
             || self.big_tab.is_running()
             || self.boot_tab.is_running()
+            || self.archive_tab.is_running()
             || self.organize_tab.is_running()
             || self.sync_tab.is_running()
             || self.share_tab.is_running();
@@ -190,6 +194,7 @@ impl eframe::App for SuperCopierApp {
             }
             Tab::DiskUsage => self.disk_usage_tab.ui(ui),
             Tab::Boot => self.boot_tab.ui(ui, dropped),
+            Tab::Archive => self.archive_tab.ui(ui, dropped),
             Tab::Organize => {
                 self.organize_tab.add_dropped(dropped);
                 self.organize_tab.ui(ui);
@@ -214,6 +219,7 @@ fn tab_bar(ui: &mut egui::Ui, tab: &mut Tab, theme: &mut egui::ThemePreference) 
             (Tab::Big, "🐘 Big Files & Folders"),
             (Tab::DiskUsage, "💽 Disk Usage"),
             (Tab::Boot, "💿 Bootable USB"),
+            (Tab::Archive, "🗜 Zip / Unzip"),
             (Tab::Organize, "🗂 Organize"),
             (Tab::Sync, "🔄 Sync"),
             (Tab::Share, "📡 Share"),

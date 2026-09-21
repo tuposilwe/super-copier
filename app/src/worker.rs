@@ -6,7 +6,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use crossbeam_channel::Receiver;
-use engine::{big_folders, bootable, copy, duplicates, fsops, large_files, search, share, sync, CancelToken};
+use engine::{archive, big_folders, bootable, copy, duplicates, fsops, large_files, search, share, sync, CancelToken};
 
 pub struct Job<E> {
     pub cancel: CancelToken,
@@ -83,6 +83,41 @@ pub fn spawn_big_folders(
     let cancel2 = cancel.clone();
     std::thread::spawn(move || {
         let _ = big_folders::find_big_folders(&roots, options, cancel2, tx);
+    });
+    Job { cancel, rx }
+}
+
+pub fn spawn_zip(
+    sources: Vec<PathBuf>,
+    dest: PathBuf,
+    options: archive::ZipOptions,
+) -> Job<archive::ArchiveEvent> {
+    let cancel = CancelToken::new();
+    let (tx, rx) = crossbeam_channel::unbounded();
+    let cancel2 = cancel.clone();
+    std::thread::spawn(move || {
+        if let Err(e) = archive::create_zip(&sources, &dest, options, cancel2, tx.clone()) {
+            // Cancellation already reported itself; anything else needs telling.
+            if !matches!(e, engine::EngineError::Cancelled) {
+                let _ = tx.send(archive::ArchiveEvent::FileError { path: dest.display().to_string(), message: e.to_string() });
+                let _ = tx.send(archive::ArchiveEvent::Cancelled);
+            }
+        }
+    });
+    Job { cancel, rx }
+}
+
+pub fn spawn_unzip(archive_path: PathBuf, dest_dir: PathBuf, overwrite: bool) -> Job<archive::ArchiveEvent> {
+    let cancel = CancelToken::new();
+    let (tx, rx) = crossbeam_channel::unbounded();
+    let cancel2 = cancel.clone();
+    std::thread::spawn(move || {
+        if let Err(e) = archive::extract_zip(&archive_path, &dest_dir, overwrite, cancel2, tx.clone()) {
+            if !matches!(e, engine::EngineError::Cancelled) {
+                let _ = tx.send(archive::ArchiveEvent::FileError { path: archive_path.display().to_string(), message: e.to_string() });
+                let _ = tx.send(archive::ArchiveEvent::Cancelled);
+            }
+        }
     });
     Job { cancel, rx }
 }
