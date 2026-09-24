@@ -234,9 +234,9 @@ cat > "$APP/Contents/Info.plist" <<'EOF'
 	<key>CFBundleIdentifier</key>
 	<string>dev.tuposilwe.supercopier</string>
 	<key>CFBundleVersion</key>
-	<string>0.3.0</string>
+	<string>0.3.1</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.3.0</string>
+	<string>0.3.1</string>
 	<key>CFBundleExecutable</key>
 	<string>super-copier</string>
 	<key>CFBundleIconFile</key>
@@ -347,7 +347,7 @@ compiler that happens to also run on macOS/Linux):
 ```sh
 cargo build --release -p super-copier --target x86_64-pc-windows-gnu
 cd packaging/windows
-makensis -DVERSION=0.3.0 installer.nsi
+makensis -DVERSION=0.3.1 installer.nsi
 # -> packaging/windows/SuperCopierSetup.exe
 ```
 
@@ -361,7 +361,7 @@ here). If you build the underlying `.exe` on Windows instead of
 cross-compiling, just point `EXE_PATH` at it:
 
 ```sh
-makensis -DVERSION=0.3.0 -DEXE_PATH=..\..\target\release\super-copier.exe installer.nsi
+makensis -DVERSION=0.3.1 -DEXE_PATH=..\..\target\release\super-copier.exe installer.nsi
 ```
 
 #### How the Explorer context menu avoids opening a window per file
@@ -414,7 +414,7 @@ top of `installer.wxs` for exactly what was and wasn't confirmed.
 cargo build --release
 dotnet tool install --global wix --version 5.0.2   # v5, not v7 — v7 needs a paid EULA
 cd packaging\windows-msi
-wix build installer.wxs -arch x64 -d Version=0.3.0 -d ExePath=..\..\target\release\super-copier.exe -d IconPath=..\..\app\assets\icon.ico -o SuperCopier.msi
+wix build installer.wxs -arch x64 -d Version=0.3.1 -d ExePath=..\..\target\release\super-copier.exe -d IconPath=..\..\app\assets\icon.ico -o SuperCopier.msi
 ```
 
 [WiX v5]: https://wixtoolset.org/
@@ -426,7 +426,7 @@ covers the two common cases:
 
 ```sh
 ./packaging/linux/build_deb.sh
-# -> packaging/linux/super-copier_0.3.0_amd64.deb
+# -> packaging/linux/super-copier_0.3.1_amd64.deb
 
 ./packaging/linux/build_tarball.sh
 # -> packaging/linux/super-copier-linux-x86_64.tar.gz
@@ -436,7 +436,7 @@ Both cross-compile from macOS via `cargo-zigbuild` automatically (or
 build natively if run on Linux), then package the binary with
 `super-copier.desktop` and an icon. The `.deb` installs to `/usr/bin`,
 `/usr/share/applications`, and `/usr/share/pixmaps` via
-`dpkg -i super-copier_0.3.0_amd64.deb`; the tarball just needs
+`dpkg -i super-copier_0.3.1_amd64.deb`; the tarball just needs
 extracting and running — no package manager involved. `dpkg-deb` (the
 *builder*, not an installer) runs fine on macOS via `brew install dpkg`,
 so building the `.deb` doesn't need Linux either. Verified: both scripts

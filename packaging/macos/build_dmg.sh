@@ -6,7 +6,6 @@
 #   (no argument builds both)
 # Output: packaging/macos/SuperCopier-macOS-Intel.dmg
 #         packaging/macos/SuperCopier-macOS-AppleSilicon.dmg
-1234
 #
 # Signing (all optional; with none set you get an ad-hoc signed build that
 # only opens cleanly on the Mac that built it — downloads get Gatekeeper's
@@ -74,9 +73,9 @@ build_one() {
 	<key>CFBundleIdentifier</key>
 	<string>dev.tuposilwe.supercopier</string>
 	<key>CFBundleVersion</key>
-	<string>0.3.0</string>
+	<string>0.3.1</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.3.0</string>
+	<string>0.3.1</string>
 	<key>CFBundleExecutable</key>
 	<string>super-copier</string>
 	<key>CFBundleIconFile</key>

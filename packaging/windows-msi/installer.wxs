@@ -3,7 +3,7 @@
   Super Copier MSI installer (WiX v5). Build on Windows:
 
     dotnet tool install --global wix --version 5.0.2
-    wix build installer.wxs -arch x64 -d Version=0.3.0 -d ExePath=..\..\target\release\super-copier.exe -d IconPath=..\..\app\assets\icon.ico -o SuperCopier.msi
+    wix build installer.wxs -arch x64 -d Version=0.3.1 -d ExePath=..\..\target\release\super-copier.exe -d IconPath=..\..\app\assets\icon.ico -o SuperCopier.msi
 
   (Use v5, not v7 — v7 requires accepting a paid "Open Source
   Maintenance Fee" EULA; v5 is plain MIT-licensed.)
