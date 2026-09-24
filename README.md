@@ -263,12 +263,11 @@ just double-click it in place — it runs fine either way). If the Finder
 icon looks stale after rebuilding, that's the icon cache, not the app —
 `touch` the `.app` and/or relaunch Finder.
 
-This ad-hoc signature is only good for **this Mac**. If you copy the
-`.app` to another machine or hand it to someone else, Gatekeeper will
-block it there until they right-click → Open once (no real Apple
-Developer certificate is involved). For real distribution you'd need to
-sign with a Developer ID and notarize via `xcrun notarytool` — out of
-scope here.
+This ad-hoc signature is only good for **this Mac**. A copy that arrives
+by download (browser, AirDrop, chat) gets Gatekeeper's quarantine flag and
+is blocked with "Apple could not verify… is free of malware". See
+[Signing and notarizing](#signing-and-notarizing-macos) below for the real
+fix, and for what a user can do in the meantime.
 
 ### Windows
 
@@ -289,14 +288,56 @@ binary), `packaging/` has a real installer for each platform.
 ```
 
 Builds the release binary, assembles `Super Copier.app` (see
-[Packaging](#packaging) above), ad-hoc signs it, and wraps it in a
+[Packaging](#packaging) above), signs it, and wraps it in a
 `.dmg` with an `Applications` symlink alongside it — the standard
 "drag the app onto Applications" flow. Verified: the script runs
 end-to-end, the resulting `.dmg` mounts, and the app inside launches.
 
-The same ad-hoc-signature caveat from the `.app` section applies: this
-`.dmg` will trigger Gatekeeper's "unidentified developer" prompt on any
-Mac other than the one that built it.
+Without a signing identity this `.dmg` is ad-hoc signed and downloads of
+it are blocked by Gatekeeper — see below.
+
+#### Signing and notarizing (macOS)
+
+To ship something that opens with no warning you need an Apple Developer
+Program membership, a **Developer ID Application** certificate in your
+keychain, and Apple's notarization. `build_dmg.sh` does all of it when told
+which identity and credentials to use (both are optional; leave them unset
+for the ad-hoc build above):
+
+```sh
+# one-time: find your identity, and store notarization credentials
+security find-identity -v -p codesigning        # copy the "Developer ID Application: ..." name
+xcrun notarytool store-credentials super-copier-notary \
+    --apple-id you@example.com --team-id YOURTEAMID
+    # ...it prompts for an app-specific password: create one at
+    # appleid.apple.com > Sign-In and Security > App-Specific Passwords
+
+# every release
+SIGN_IDENTITY="Developer ID Application: Your Name (YOURTEAMID)" \
+NOTARY_PROFILE=super-copier-notary \
+    sh packaging/macos/build_dmg.sh
+```
+
+It signs the app with the hardened runtime and a secure timestamp,
+notarizes and staples the app, then signs, notarizes and staples the `.dmg`
+(so the app still verifies after being dragged out of it, even offline). A
+rejected submission prints Apple's log, which names the offending file.
+Check the result with `spctl --assess --type execute -vv "Super Copier.app"`:
+`Unnotarized Developer ID` means signed but not yet notarized, and
+`Notarized Developer ID` is the goal. SIGN_IDENTITY alone (no
+NOTARY_PROFILE) is useful for testing the signing step but still gets
+blocked on other Macs.
+
+#### Opening an un-notarized build
+
+For a build that isn't notarized (including the ad-hoc ones), the old
+"right-click → Open" trick no longer works on recent macOS. Instead, either:
+
+- try to open the app once, then go to **System Settings → Privacy &
+  Security**, scroll to the message about "Super Copier" and click **Open
+  Anyway**; or
+- remove the download flag in Terminal:
+  `xattr -dr com.apple.quarantine "/Applications/Super Copier.app"`
 
 ### Windows: `SuperCopierSetup.exe`
 

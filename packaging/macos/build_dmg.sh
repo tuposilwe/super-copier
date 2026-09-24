@@ -6,7 +6,46 @@
 #   (no argument builds both)
 # Output: packaging/macos/SuperCopier-macOS-Intel.dmg
 #         packaging/macos/SuperCopier-macOS-AppleSilicon.dmg
+1234
+#
+# Signing (all optional; with none set you get an ad-hoc signed build that
+# only opens cleanly on the Mac that built it — downloads get Gatekeeper's
+# "Apple could not verify..." block):
+#   SIGN_IDENTITY   a "Developer ID Application: ..." identity from
+#                   `security find-identity -v -p codesigning`. Signs the app
+#                   and dmg with the hardened runtime and a secure timestamp.
+#   NOTARY_PROFILE  a keychain profile created once with
+#                   `xcrun notarytool store-credentials <name> --apple-id ...
+#                   --team-id ...`. Needs SIGN_IDENTITY. Submits the app and
+#                   the dmg to Apple, waits, and staples the tickets so the
+#                   result opens with no warning, even offline.
+# Example:
+#   SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
+#   NOTARY_PROFILE=super-copier-notary sh packaging/macos/build_dmg.sh
 set -eu
+
+SIGN_IDENTITY="${SIGN_IDENTITY:-}"
+NOTARY_PROFILE="${NOTARY_PROFILE:-}"
+if [ -n "$NOTARY_PROFILE" ] && [ -z "$SIGN_IDENTITY" ]; then
+    echo "NOTARY_PROFILE needs SIGN_IDENTITY: Apple only notarizes Developer ID-signed code." >&2
+    exit 1
+fi
+
+# Sends $1 to Apple's notary service and waits for the verdict. A rejection
+# prints Apple's log (which names the offending file) and fails the build.
+notarize() {
+    submission="$(xcrun notarytool submit "$1" --keychain-profile "$NOTARY_PROFILE" --wait 2>&1)" || {
+        echo "$submission" >&2
+        return 1
+    }
+    echo "$submission" | tail -4
+    id="$(echo "$submission" | awk '/^ *id:/ {print $2; exit}')"
+    if ! echo "$submission" | grep -q "status: Accepted"; then
+        echo "Notarization of $1 was not accepted:" >&2
+        xcrun notarytool log "$id" --keychain-profile "$NOTARY_PROFILE" >&2 || true
+        return 1
+    fi
+}
 
 cd "$(dirname "$0")/../.."
 
@@ -54,10 +93,25 @@ build_one() {
 </plist>
 EOF
 
-    # Ad-hoc sign so Gatekeeper treats it as a normal local app instead of
-    # flagging it as damaged/unsigned. Only valid on this machine — see the
-    # README for what real distribution would require.
-    codesign --force --deep -s - "$APP"
+    if [ -n "$SIGN_IDENTITY" ]; then
+        # Hardened runtime + secure timestamp are both required for
+        # notarization. The bundle holds a single executable, so no --deep.
+        codesign --force --options runtime --timestamp -s "$SIGN_IDENTITY" "$APP"
+        codesign --verify --strict --verbose=2 "$APP"
+        if [ -n "$NOTARY_PROFILE" ]; then
+            ZIP="$(mktemp -d)/SuperCopier.zip"
+            ditto -c -k --keepParent "$APP" "$ZIP"
+            notarize "$ZIP"
+            rm -rf "$(dirname "$ZIP")"
+            # Stapled before the dmg is built, so the app carries its own
+            # ticket and still verifies once dragged out of the dmg offline.
+            xcrun stapler staple "$APP"
+        fi
+    else
+        # Ad-hoc signature: enough for the Mac that built it, not for a
+        # download. See the notes at the top of this file.
+        codesign --force --deep -s - "$APP"
+    fi
 
     STAGE="$(mktemp -d)"
     trap 'rm -rf "$STAGE"' EXIT
@@ -68,6 +122,14 @@ EOF
     rm -f "$OUT"
     hdiutil create -volname "Super Copier" -srcfolder "$STAGE" -ov -format UDZO "$OUT"
     rm -rf "$STAGE"
+
+    if [ -n "$SIGN_IDENTITY" ]; then
+        codesign --force --timestamp -s "$SIGN_IDENTITY" "$OUT"
+        if [ -n "$NOTARY_PROFILE" ]; then
+            notarize "$OUT"
+            xcrun stapler staple "$OUT"
+        fi
+    fi
 
     echo "Built $OUT"
 }
